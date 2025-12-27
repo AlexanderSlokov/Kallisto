@@ -9,38 +9,45 @@ Chức năng: Dùng để băm các khóa (Key/Secret Name)
 
 Tại sao dùng: Một secret management system phải đối mặt với nguy cơ bị tấn công từ chối dịch vụ (DoS). Nếu dùng hàm băm thông thường, kẻ tấn công có thể tạo ra hàng loạt key gây trùng lặp (Hash Flooding) làm treo hệ thống.
 
-Ứng dụng: Bạn sẽ triển khai SipHash với một "secret key" để đảm bảo các bảng băm của bạn miễn nhiễm với các cuộc tấn công dò tìm xung đột.
+Ứng dụng: Triển khai SipHash với một "secret key" `KALLISTO_SIPHASH_SECRET_KEY` để đảm bảo các bảng băm miễn nhiễm với các cuộc tấn công hash flooding.
 
 ## 2. Cuckoo Hashing
 
-Chức năng: Lưu trữ các token truy cập hoặc các secret nhỏ trong RAM để truy xuất tức thì.
+Chức năng: Lưu trữ các secret trong RAM để truy xuất tức thì. Bắt chước theo Hashicorp Vault: xin trước luôn luôn vùng nhớ RAM để không cho các thread khác truy cập. 
 
-Tại sao dùng: Trong hệ thống nhạy cảm như Vault, tốc độ là yếu tố sống còn. Cuckoo Hashing đảm bảo việc tìm kiếm luôn là $O(1)$ trong trường hợp xấu nhất (Worst-case).
+Tại sao dùng: Cuckoo Hashing đảm bảo việc tìm kiếm luôn là O(1) trong trường hợp xấu nhất (Worst-case).
 
-Ứng dụng: Bạn có thể dùng cấu trúc này để làm "Secret Cache". Khi ứng dụng cần lấy mật khẩu DB, Vault sẽ trả về kết quả ngay lập tức mà không có độ trễ biến thiên, vì Cuckoo Hash không bao giờ bị tình trạng "dây chuyền" quá dài khi xung đột xảy ra.
+Ứng dụng: Làm "Secret Cache". Khi ứng dụng cần lấy mật khẩu, Kallisto sẽ trả về kết quả ngay lập tức mà không có độ trễ biến thiên, vì Cuckoo Hash không bao giờ bị tình trạng "dây chuyền" quá dài khi xung đột xảy ra.
 
 ## 3. B-Trees & Disk-Optimized Storage
 
-Chức năng: Quản lý cấu trúc cây thư mục (Path-based secrets) ví dụ: `/secret/prod/db/pass`
+Chức năng: Quản lý cấu trúc cây thư mục (Path-based secrets) ý như các API của Hashicorp Vault.
 
 Tại sao dùng: Một secret management system không chỉ lưu trong RAM mà phải lưu xuống đĩa cứng (persistent storage). B-Tree tối ưu số lần đọc/ghi (I/O).
 
-Ứng dụng: Bạn dùng B-Tree để lưu trữ toàn bộ cây phân cấp các secret. Điều này giúp bạn thực hiện các truy vấn theo tiền tố (prefix search) cực nhanh, ví dụ: "Lấy tất cả secret trong thư mục /prod".
+Ứng dụng: Dùng B-Tree để lưu trữ toàn bộ cây phân cấp các secret, thực hiện các truy vấn theo tiền tố (prefix search) cực nhanh, ví dụ: "Lấy tất cả secret trong thư mục /prod".
 
 ---
-Để chứng minh Project Kallisto là một hệ thống "hiệu năng cao" (High-performance system) chúng ta cần các con số cụ thể từ Locust để chứng minh rằng các cấu trúc dữ liệu Cuckoo Hashing, B-Tree thực sự phát huy tác dụng.
-Dưới đây là tiêu chuẩn để "Kallisto" được coi là code xịn trong môi trường giả lập (localhost hoặc homelab của bạn):
-1. Chỉ số "Code Xịn" (Benchmark Targets)
-Với một server C++ tối ưu, bạn nên hướng tới các mốc sau để gây ấn tượng mạnh trong phần "Theoretical Depth" (Độ sâu lý thuyết):
-RPS (Requests Per Second): > 50,000 req/s.
-Tại sao: Vì bạn dùng Cuckoo Hashing ($O(1)$ worst-case). Với các request tra cứu Secret đơn giản, CPU chỉ mất vài micro giây để tìm thấy dữ liệu. Nếu con số này dưới 10k, thầy sẽ đặt câu hỏi về việc bạn có đang gặp lỗi I/O hay không.
-Latency (Độ trễ): p99 < 1ms (Sub-millisecond).
-Tại sao: Đây là lúc bạn "khoe" về Cache Locality (Day 3)5. Việc sắp xếp các bucket của bảng băm nằm liên tục trong bộ nhớ giúp CPU không bị "cache miss", dẫn đến độ trễ cực thấp.
-Locust CCU (Concurrent Users): 500 - 1,000 CCU.
-Tại sao: Con số này chứng minh khả năng quản lý Call Stacks và tài nguyên hệ thống của bạn tốt6, không bị tràn bộ nhớ hay deadlock khi nhiều Agent (Kaellir) gọi tới cùng lúc.
 
-2. Mô hình Kallisto & Kaellir
-Trong báo cáo 20 trang7, bạn nên mô tả mô hình này như một giải pháp Sidecar Injection thực thụ:
+# Mục tiêu benchmark
+
+## 1. Chỉ số "Code Xịn" (Benchmark Targets)
+
+Với một server C++ tối ưu, bạn nên hướng tới các mốc sau:
+
+- RPS (Requests Per Second): > 50,000 req/s.   
+Tại sao: Vì bạn dùng Cuckoo Hashing (O(1) worst-case). Với các request tra cứu Secret đơn giản, CPU chỉ mất vài micro giây để tìm thấy dữ liệu. Nếu con số này dưới 10k, thầy sẽ đặt câu hỏi về việc bạn có đang gặp lỗi I/O hay không.
+
+- Latency (Độ trễ): p99 < 1ms (Sub-millisecond).
+Tại sao: Cache Locality (Day 3). Việc sắp xếp các bucket của bảng băm nằm liên tục trong bộ nhớ giúp CPU không bị "cache miss", dẫn đến độ trễ cực thấp.
+
+- Locust CCU (Concurrent Users): 500 - 1,000 CCU.
+Tại sao: Con số này chứng minh khả năng quản lý Call Stacks và tài nguyên hệ thống của bạn tốt, không bị tràn bộ nhớ hay deadlock khi nhiều Agent (Kaellir) gọi tới cùng lúc.
+
+---
+
+# 2. Mô hình server Kallisto & Kaellir agent
+Trong báo cáo 20 trang, bạn nên mô tả mô hình này như một giải pháp Sidecar Injection thực thụ:
 Thành phần
 Vai trò DSA
 Nhiệm vụ cụ thể
@@ -54,27 +61,15 @@ Locust (Tester)
 Asymptotic Analysis 11
 Đo lường thực tế để vẽ biểu đồ so sánh lý thuyết Big-O với hiệu năng thực tế.
 
+---
 
-3. Cách "diễn" trong buổi Vấn đáp (Individual Defense)
-Thầy sẽ nhìn vào biểu đồ Locust của bạn và hỏi: "Tại sao RPS của em lại cao và ổn định như vậy ngay cả khi số lượng Secret tăng lên?"13131313.
-Câu trả lời "ăn điểm" tuyệt đối14:
-"Thưa thầy, đó là nhờ đặc tính của Cuckoo Hashing15. Khác với bảng băm truyền thống dùng danh sách liên kết có thể bị suy biến thành $O(n)$ khi có xung đột, Cuckoo Hashing đảm bảo việc tra cứu luôn là tối đa 2 lần truy cập bộ nhớ ($O(1)$ hằng số)16. Kết hợp với việc tối ưu Cache Locality 17 trong cấu trúc mảng tuyến tính, hệ thống Kallisto có thể duy trì RPS cao ổn định bất kể kích thước dữ liệu."
-
-Dự kiến cho báo cáo 20 trang:
-Bạn có thể dành hẳn 1 chương (khoảng 5 trang) để so sánh:
-Baseline: Dùng std::map (Cây đỏ đen - $O(\log n)$)18.
-Kallisto: Dùng Cuckoo Hashing ($O(1)$)19.
-Kết quả: Biểu đồ Locust cho thấy khi CCU tăng, std::map bắt đầu trễ dần, còn Kallisto vẫn "phẳng lỳ" về độ trễ20.
-—
-Chào bạn, **12 ngày** (tính cả hôm nay) và **36 giờ làm việc** (3h/ngày) là một con số "vừa khít" cho một chiến dịch chạy nước rút. Với dân hệ thống như chúng ta, đây gọi là giai đoạn "Incident Response" – cần chính xác từng bước, không được phép rollback.
-
-Dưới đây là **Lịch trình Tác chiến (Battle Plan)** cho dự án **Kallisto**. Tôi đã chia nhỏ để bạn vừa code xong core, vừa có số liệu benchmark để viết báo cáo, và quan trọng nhất là luyện tay để Live Code.
+# Lịch trình cho dự án **Kallisto**.
 
 ---
 
-### GIAI ĐOẠN 1: KHỞI TẠO & CODE CORE (HẠ TẦNG)
+## GIAI ĐOẠN 1: KHỞI TẠO & CODE CORE (HẠ TẦNG)
 
-*Mục tiêu: Xây dựng xong "trái tim" của hệ thống (Cuckoo Hash & B-Tree cơ bản).*
+*Mục tiêu: Xây dựng xong MVP của hệ thống (Cuckoo Hash & B-Tree cơ bản).*
 
 **Ngày 1: 27/12 (Hôm nay) - Architecture & Skeleton**
 
