@@ -14,11 +14,14 @@
         "formulahendry.code-runner"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
-        "C_Cpp.default.compilerPath": "/usr/bin/g++",
-        "code-runner.runInTerminal": true
+		"terminal.integrated.defaultProfile.linux": "bash",
+		"C_Cpp.default.compilerPath": "/usr/bin/g++",
+		"code-runner.runInTerminal": true,
+		"editor.tabSize": 8,
+		"editor.insertSpaces": false,
+		"editor.rulers": [80]
       }
-    }
+    }	
   },
   "remoteUser": "vscode",
   "postCreateCommand": "g++ --version && cmake --version && git --version",

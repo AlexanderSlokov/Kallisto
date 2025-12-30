@@ -52,6 +52,9 @@ private:
     size_t hash_2(const std::string& key) const;
     
     void rehash();
+
+    SipHash hasher1;
+    SipHash hasher2;
 };
 
 } // namespace kallisto
