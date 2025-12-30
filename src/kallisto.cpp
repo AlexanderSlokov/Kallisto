@@ -4,6 +4,7 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
+    // Cần cho phép truyền ENV để thay đổi kích thước Cuckoo Table và B-Tree
     storage = std::make_unique<CuckooTable>(2048);
     path_index = std::make_unique<BTreeIndex>(5);
 }
@@ -42,7 +43,7 @@ std::string KallistoServer::get_secret(const std::string& path, const std::strin
         error("[B-TREE] Path validation failed: " + path);
         return "";
     }
-    debug("[B-TREE] Path validated.");
+    debug("[B-TREE] Path validated at: " + path);
 
     // Step 2: Secure Lookup in Cuckoo Table
     debug("[CUCKOO] Looking up secret...");

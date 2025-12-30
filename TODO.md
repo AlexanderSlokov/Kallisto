@@ -1,9 +1,5 @@
 # 📅 Kallisto Project - MVP Battle Plan (12 Days)
 
-Dựa trên yêu cầu của bạn, đây là bảng `TODO.md` chi tiết để theo dõi tiến độ mỗi ngày. Mục tiêu là hoàn thành MVP "Path-Based Secret Retrieval" và có bộ số liệu "đẹp" cho báo cáo.
-
----
-
 ## 🏗️ GIAI ĐOẠN 1: CORE DEVELOPMENT (27/12 - 30/12)
 *Mục tiêu: Xây dựng xong "cỗ máy" lưu trữ.*
 
@@ -11,13 +7,13 @@ Dựa trên yêu cầu của bạn, đây là bảng `TODO.md` chi tiết để 
     - [x] Setup cấu trúc Project (CMake, folder `src`, `include`, `tests`).
     - [x] Định nghĩa Interface `KallistoServer`, `CuckooTable`, `BTreeIndex`.
     - [x] Thiết kế struct `SecretEntry`.
-- [ ] **Ngày 2 (28/12): Trụ cột 1 - SipHash (Security)**
-    - [ ] Implement thuật toán SipHash (chống Hash Flooding).
-    - [ ] Viết Unit Test cơ bản kiểm tra tính nhất quán của Hash.
-- [ ] **Ngày 3 & 4 (29/12 - 30/12): Trụ cột 2 - Cuckoo Hashing (Performance)**
-    - [ ] Implement logic `insert()` với cơ chế "kicking" (đá key).
-    - [ ] Implement `lookup()` và `delete()` với độ phức tạp $O(1)$.
-    - [ ] **Review:** Tự tay code lại hàm `insert` 3 lần để thuộc logic cho buổi vấn đáp.
+- [x] **Ngày 2 (28/12): Trụ cột 1 - SipHash (Security)**
+    - [x] Implement thuật toán SipHash (chống Hash Flooding).
+    - [x] Viết Unit Test cơ bản kiểm tra tính nhất quán của Hash.
+- [x] **Ngày 3 & 4 (29/12 - 30/12): Trụ cột 2 - Cuckoo Hashing (Performance)**
+    - [x] Implement logic `insert()` với cơ chế "kicking" (đá key).
+    - [x] Implement `lookup()` và `delete()` với độ phức tạp $O(1)$.
+    - [x] **Review:** Tự tay code lại hàm `insert` 3 lần để thuộc logic cho buổi vấn đáp.
 
 ---
 

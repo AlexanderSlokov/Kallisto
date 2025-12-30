@@ -11,6 +11,10 @@ Tại sao dùng: Một secret management system phải đối mặt với nguy c
 
 Ứng dụng: Triển khai SipHash với một "secret key" `KALLISTO_SIPHASH_SECRET_KEY` để đảm bảo các bảng băm miễn nhiễm với các cuộc tấn công hash flooding.
 
+### Nhưng tại sao lại phải là SipHash?
+
+SipHash sử dụng kiến trúc đảo bit (Add-Rotate-XOR) để tạo ra các bit nhiễu (noise bit) trong quá trình băm mà không tiêu tốn quá nhiều tài nguyên tính toán của CPU (việc xoay bit chỉ diễn ra trong một clock cycle nên rất nhanh và hiệu quả trong một chu kỳ của CPU).
+
 ## 2. Cuckoo Hashing
 
 Chức năng: Lưu trữ các secret trong RAM để truy xuất tức thì. Bắt chước theo Hashicorp Vault: xin trước luôn luôn vùng nhớ RAM để không cho các thread khác truy cập. 
