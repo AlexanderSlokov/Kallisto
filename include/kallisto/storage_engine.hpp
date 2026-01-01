@@ -12,21 +12,26 @@ namespace kallisto {
 
 /**
  * StorageEngine handles the local persistence of secrets.
- * It uses a simple snapshot mechanism:
- * - Save: Dump all secrets to a binary file.
- * - Load: Read binary file and return vector of secrets.
- * 
- * Data Format:
- * [MagicNumber: 4 bytes]
- * [Version: 4 bytes]
- * [Count: 8 bytes]
- * [SecretEntry 1]
+ * Instead of creating thousands of small files (slow because of inode overhead), we dump the entire state to a single optimized binary file.
+ * File Format:
+ * [MagicNumber: 4 bytes] (KALL)
+ * [Version: 4 bytes]     (0x01 - Prevent format upgrade from breaking old code)
+ * [Count: 8 bytes]       (Number of entries)
+ * [Entry 1 Size: 4 bytes] [Entry 1 Data]
  * ...
- * [SecretEntry N]
+ * [BODY (Continuous Data) ]
+ * +-----------------------+
+ * | [Len: 4b] [Path...]   | -> Entry 1: Path
+ * | [Len: 4b] [Key...]    | -> Entry 1: Key
+ * | [Len: 4b] [Value...]  | -> Entry 1: Value
+ * | [TTL: 4b] [Created:8b]| -> Entry 1: Metadata
+ * +-----------------------+
+ * |    ... Entry 2 ...    |
+ * +-----------------------+
  */
 class StorageEngine {
 public:
-    StorageEngine(const std::string& data_dir = "kallisto/data");
+    StorageEngine(const std::string& data_dir = "/data/kallisto");
     ~StorageEngine();
 
     /**
@@ -48,7 +53,17 @@ private:
     const uint32_t MAGIC_NUMBER = 0x4B414C4C; // 'KALL'
     const uint32_t VERSION = 1;
 
-    // Helper for serialization
+    // Helpers for binary serialization
+    template<typename T>
+    void write_pod(std::ofstream& out, const T& value) {
+        out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    }
+
+    template<typename T>
+    void read_pod(std::ifstream& in, T& value) {
+        in.read(reinterpret_cast<char*>(&value), sizeof(T));
+    }
+
     void write_string(std::ofstream& out, const std::string& str);
     std::string read_string(std::ifstream& in);
 };
