@@ -67,6 +67,24 @@ std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
     return std::nullopt;
 }
 
+std::vector<SecretEntry> CuckooTable::get_all_entries() const {
+    std::vector<SecretEntry> all_secrets;
+    // Pre-allocate to avoid resize overhead, at least size/2
+    all_secrets.reserve(capacity); 
+
+    for (const auto& bucket : table_1) {
+        if (bucket.occupied) {
+            all_secrets.push_back(bucket.entry);
+        }
+    }
+    for (const auto& bucket : table_2) {
+        if (bucket.occupied) {
+            all_secrets.push_back(bucket.entry);
+        }
+    }
+    return all_secrets;
+}
+
 bool CuckooTable::remove(const std::string& key) {
     size_t h1 = hash_1(key);
     if (table_1[h1].occupied && table_1[h1].key == key) {

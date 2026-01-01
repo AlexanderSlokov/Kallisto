@@ -22,12 +22,17 @@ public:
      * @return true if insertion was successful, false if a cycle was detected (full table).
      */
     bool insert(const std::string& key, const SecretEntry& entry);
-
+    
     /**
      * Looks up an entry by key. O(1) worst-case.
      * @return The entry if found, std::nullopt otherwise.
      */
     std::optional<SecretEntry> lookup(const std::string& key) const;
+
+    /**
+     * Retrieves all entries from the table (for snapshotting).
+     */
+    std::vector<SecretEntry> get_all_entries() const;
 
     /**
      * Removes an entry by key.
