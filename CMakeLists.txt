@@ -11,6 +11,8 @@ add_executable(kallisto
     src/siphash.cpp
     src/cuckoo_table.cpp
     src/btree_index.cpp
+    src/btree_index.cpp
+    src/storage_engine.cpp
     src/kallisto.cpp
     helpers/logger.cpp
 )

@@ -17,37 +17,27 @@ int main() {
         kallisto::info("===============");
         
         kallisto::KallistoServer server;
-        kallisto::info("Initializing subsystems: [SipHash] [CuckooTable] [B-Tree]...");
-        // Thiếu bước validate
-        // Nếu đã dev validate, chèn log debug để debug sâu vào tiến trình khởi tạo
+        kallisto::info("Initializing subsystems... [Persistence Enabled]");
         
-        // 1. Path: /prod/payment, Key: db_pass
+        // Test Data
         std::string path = "/prod/payment";
         std::string key = "db_pass";
         std::string secret = "SuperSecretPassword123";
 
-        kallisto::info("Scenario: Storing secret in production...");
-        if (server.put_secret(path, key, secret)) {
-            kallisto::info("Successfully stored secret.");
-        }
-
-        kallisto::info("------------------------------------------");
+        // 1. Try to RETRIEVE first (to prove persistence)
+        kallisto::info("Checking for existing secret...");
+        std::string existing = server.get_secret(path, key);
         
-        // 2. Retrieval Demo
-        kallisto::info("Scenario: Client 'Kaellir' requesting secret...");
-        std::string result = server.get_secret(path, key);
-        
-        if (!result.empty()) {
-            kallisto::info("RESULT: 200 OK - Value: " + result);
+        if (!existing.empty()) {
+            kallisto::info(">>> PERSISTENCE SUCCESS! Found secret from disk: " + existing);
         } else {
-            kallisto::error("RESULT: 404 NOT FOUND");
+            kallisto::warn(">>> FIRST RUN OR NO DATA. Writing secret to disk...");
+            if (server.put_secret(path, key, secret)) {
+                kallisto::info("Secret stored. Restart server to verify persistence.");
+            }
         }
 
-        kallisto::info("------------------------------------------");
-
-        // 3. Invalid Path Demo
-        kallisto::info("Scenario: Requesting secret from invalid path...");
-        server.get_secret("/dev/hack", "root_pass");
+    } catch (const std::exception& e) {
         
     } catch (const std::exception& e) {
         std::cerr << "Critical error: " << e.what() << std::endl;
