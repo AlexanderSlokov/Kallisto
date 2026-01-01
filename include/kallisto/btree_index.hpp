@@ -8,8 +8,6 @@
 namespace kallisto {
 
 /**
- * BTreeIndex "Lite" for path-based secret management.
- * 
  * This is a simplified B-Tree optimized for strings (paths).
  * It acts as a validator before secret lookup in the CuckooTable.
  */
