@@ -129,7 +129,64 @@ Tại sao dùng: Cuckoo Hashing đảm bảo việc tìm kiếm luôn là O(1) t
 
 Chức năng: Quản lý cấu trúc cây thư mục (Path-based secrets), thực hiện các truy vấn theo tiền tố (prefix search).
 
-Tại sao dùng: Một secret management system không chỉ lưu trong RAM mà phải lưu xuống đĩa cứng (persistent storage). B-Tree tối ưu số lần đọc/ghi (I/O) và tìm path trong B-Tree tốn O(log N), rất nhanh để chặn các request rác (ví dụ: user hỏi path `/admin/`... nhưng trong hệ thống chưa từng tạo path này, B-Tree sẽ ngăn chặn logic tìm kiếm sai path trước cả khi hệ thống phải khởi động SipHash, tính toán băm hash và so sánh với các entry trong Cuckoo Table).
+### Tại sao dùng B-Tree để validate Path?
+Một secret management system không chỉ lưu trong RAM mà phải lưu xuống đĩa cứng (persistent storage). B-Tree tối ưu số lần đọc/ghi (I/O) và tìm path trong B-Tree tốn O(log N), rất nhanh để chặn các request rác (ví dụ: user hỏi path `/admin/`... nhưng trong hệ thống chưa từng tạo path này, B-Tree sẽ ngăn chặn logic tìm kiếm sai path trước cả khi hệ thống phải khởi động SipHash, tính toán băm hash và so sánh với các entry trong Cuckoo Table).
+
+## B-Tree Code Explanation
+
+Kallisto sử dụng B-Tree (không phải Binary Tree) để quản lý danh sách các đường dẫn (Path Index). Đây là cấu trúc dữ liệu tự cân bằng, tối ưu cho việc đọc theo khối.
+
+### The "Split Child" Logic (Cơ chế Phân thân)
+
+Điểm khó nhất của B-Tree là khi một Node bị đầy (Full), nó phải tự tách làm đôi và đẩy key ở giữa lên cha. Đây là đoạn code xử lý việc đó (`src/btree_index.cpp`):
+
+```cpp
+void BTreeIndex::split_child(Node* parent, int i, Node* child) {
+    // 1. Tạo node mới 'z' chứa nửa sau của 'child'
+    auto z = std::make_unique<Node>(child->is_leaf);
+    
+    // Copy (degree-1) keys từ 'child' sang 'z' (Phần bên phải)
+    for (int j = 0; j < min_degree - 1; j++) {
+        z->keys.push_back(child->keys[j + min_degree]);
+    }
+
+    // Nếu không phải là lá, copy cả con trỏ con sang 'z'
+    if (!child->is_leaf) {
+        for (int j = 0; j < min_degree; j++) {
+            z->children.push_back(std::move(child->children[j + min_degree]));
+        }
+        // Xóa phần đã move đi ở 'child'
+        child->children.erase(child->children.begin() + min_degree, child->children.end());
+    }
+
+    // 2. Lấy key ở giữa (Median) để đẩy lên Parent
+    std::string mid_key = child->keys[min_degree - 1];
+    
+    // Thu gọn 'child' (Xóa phần key đã sang 'z' và key ở giữa)
+    child->keys.erase(child->keys.begin() + min_degree - 1, child->keys.end());
+
+    // 3. Chèn 'z' vào danh sách con của Parent
+    parent->children.insert(parent->children.begin() + i + 1, std::move(z));
+    
+    // 4. Chèn 'mid_key' vào danh sách key của Parent
+    parent->keys.insert(parent->keys.begin() + i, mid_key);
+}
+```
+
+### Flow Insert Path
+Khi `PUT /prod/payment`:
+1.  Hệ thống chạy từ gốc (Root).
+2.  Nếu Root đầy (Full), gọi `split_child` để tách Root -> Chiều cao cây tăng lên 1.
+3.  Tìm nhánh con phù hợp (lớn hơn/nhỏ hơn key).
+4.  Đệ quy xuống dưới (Insert Non-Full).
+
+### Flow Validate Path
+Khi `GET /prod/payment`:
+1.  So sánh `/prod/payment` với các keys trong Node hiện tại.
+2.  Nếu tìm thấy -> Return True.
+3.  Nếu không tìm thấy và là Node lá (Leaf) -> Return False (Path invalid).
+4.  Nếu không phải lá -> Nhảy xuống Node con tương ứng và lặp lại.
+-> Độ phức tạp luôn là Logarithm cơ số `degree` của N ($O(\log_t N)$). Với degree=100, cây chứa 1 triệu path chỉ cao khoảng 3 tầng -> Tối đa 3 lần nhảy pointers.
 
 # APPLICATIONS
 
