@@ -5,14 +5,13 @@ namespace kallisto {
 
 StorageEngine::StorageEngine(const std::string& data_dir) : data_path(data_dir) {
     // Ensure data directory exists
-    // Handle permissions gracefully - if /data/kallisto fails (e.g. permission denied), 
-    // fall back to local ./data or just log error.
+    // Handle permissions gracefully - if /data/kallisto fails (e.g. permission denied)
     try {
         if (!std::filesystem::exists(data_path)) {
             std::filesystem::create_directories(data_path);
         }
     } catch (const std::exception& e) {
-        // Fallback or log. For now we assume we can create it or user provided a valid path.
+        // Just log error. Code should be deterministic - if something wrong then fail, and don't try to fix the misconfiguration for user.
         error("Failed to create data dir: " + data_path + ". Error: " + e.what());
     }
 }

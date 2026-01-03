@@ -23,23 +23,29 @@ Cache Locality (Day 3). Việc sắp xếp các bucket của bảng băm nằm l
 
 ## 1. SipHash
 
-Chức năng: Dùng để băm các khóa (Key/Secret Name)
+*"SipHash is a cryptographically secure PRF -- a keyed hash function -- that performs very well for short inputs, hence the name. It was designed by cryptographers Daniel J. Bernstein and Jean-Philippe Aumasson. It is intended as a replacement for some uses of: jhash, md5_transform, sha1_transform, and so forth."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
 
-Tại sao dùng: Một secret management system phải đối mặt với nguy cơ bị tấn công từ chối dịch vụ (DoS). Nếu dùng hàm băm thông thường, kẻ tấn công có thể tạo ra hàng loạt key gây trùng lặp (Hash Flooding) làm treo hệ thống.
+SipHash dùng một chuỗi bí mật (secret key) được tạo ra bằng một phương thức ngẫu nhiên (random) để đảm bảo tính an toàn cao nhất. Bản chất, chúng ta không được phép để bất kì ai có thể đoán được chuỗi bí mật này, do đó sẽ là tối quan trọng khi sinh ra "Secret Key" này từ một nguồn ngẫu nhiên và cryptographically secure. *"SipHash has a very high security margin, with its 128-bit key. So long as the key is kept secret, it is impossible for an attacker to guess the outputs of the function, even if being able to observe many outputs, since 2^128 outputs is significant."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
 
-Ứng dụng: Triển khai SipHash với một "secret key" `KALLISTO_SIPHASH_SECRET_KEY` để đảm bảo các bảng băm miễn nhiễm với các cuộc tấn công hash flooding.
+Linux implements the “2-4” variant of SipHash.
 
-### Nhưng tại sao lại phải là SipHash?
+### Chức năng - dùng để băm các khóa (Key/Secret Name)
+
+Một secret management system sử dụng hash table để truy vấn secret entry phải đối mặt với nguy cơ bị tấn công từ chối dịch vụ (DoS). Nếu dùng hàm băm thông thường / dễ đoán / yếu về mặt mật mã học, kẻ tấn công có thể tạo ra hàng loạt key gây trùng lặp (Hash Flooding) làm treo hệ thống, từ đó gây DoS.
+
+Để bảo vệ hệ thống khỏi nguy cơ tấn công DoS, chúng ta triển khai SipHash với một "secret key" `KALLISTO_SIPHASH_SECRET_KEY` để đảm bảo các bảng băm miễn nhiễm với các cuộc tấn công hash flooding.
+
+### But why SipHash?
 
 SipHash sử dụng kiến trúc đảo bit (Add-Rotate-XOR) để tạo ra các bit nhiễu (noise bit) trong quá trình băm mà không tiêu tốn quá nhiều tài nguyên tính toán của CPU (việc xoay bit chỉ diễn ra trong một clock cycle nên rất nhanh và hiệu quả trong một chu kỳ của CPU).
 
 ## SipHash Code Explanation
 
-Ta triển khai SipHash-2-4 (2 vòng nén, 4 vòng kết thúc) theo đúng chuẩn RFC 6421. Đây là "vệ sĩ" bảo vệ Kallisto khỏi các cuộc tấn công DoS.
+Ta triển khai SipHash-2-4 (2 vòng nén, 4 vòng kết thúc) theo đúng chuẩn RFC 6421 and for best performance as the requirements stayed "simple, high-performance system".
 
-### The "SipRound" (Trái tim của thuật toán)
+### The "SipRound"
 
-Toàn bộ sức mạnh của SipHash nằm trong hàm `sipround`. Nó sử dụng cơ chế **ARX** (Addition, Rotation, XOR) để xáo trộn trạng thái 256-bit (4 biến `v0, v1, v2, v3` mỗi biến 64-bit).
+Khía cạnh quan trọng nhất của SipHash nằm trong hàm `sipround`. Nó sử dụng cơ chế **ARX** (Addition, Rotation, XOR) để xáo trộn trạng thái 256-bit (4 biến `v0, v1, v2, v3` mỗi biến 64-bit).
 
 ```cpp
 // ARX Network (Add - Rotate - XOR)
@@ -74,41 +80,74 @@ static inline void sipround(uint64_t& v0, uint64_t& v1,
 Quy trình xử lý một chuỗi `input` diễn ra như sau (trích xuất từ `src/siphash.cpp`):
 
 ```cpp
-uint64_t SipHash::hash(const std::string& input, uint64_t k0, uint64_t k1) {
-    // 1. Initialization (Khởi tạo trạng thái nội bộ với các "Magic Numbers")
-    // Mục đích: Phá vỡ tính đối xứng ban đầu.
-    uint64_t v0 = 0x736f6d6570736575ULL ^ k0; // "somepseu"
-    uint64_t v1 = 0x646f72616e646f6dULL ^ k1; // "dorandom"
-    uint64_t v2 = 0x6c7967656e657261ULL ^ k0; // "lygenera"
-    uint64_t v3 = 0x7465646279746573ULL ^ k1; // "tedbytes"
+uint64_t SipHash::hash(
+	const std::string& input, 
+	uint64_t first_part, 
+	uint64_t second_part) {
+	
+	// Khởi tạo trạng thái nội bộ với các hằng số "nothing-up-my-sleeve"
+	// đã có sẵn trong tài liệu thuật toán SipHash. Tham khảo tại:
+	// https://cr.yp.to/siphash/siphash-20120918.pdf
+	// Mục đích: phá vỡ tính đối xứng ban đầu.
+	uint64_t v0 = 0x736f6d6570736575ULL ^ first_part; // "somepseu"
+	uint64_t v1 = 0x646f72616e646f6dULL ^ second_part; // "dorandom"
+	uint64_t v2 = 0x6c7967656e657261ULL ^ first_part; // "lygenera"
+	uint64_t v3 = 0x7465646279746573ULL ^ second_part; // "tedbytes"
 
-    // 2. Compression Loop (Vòng lặp nén)
-    // Cắt input thành từng cục 8 bytes (64-bit) để xử lý.
-    // Với mỗi khối 64-bit 'mi':
-    // - XOR 'mi' vào v3 (Nạp dữ liệu vào trạng thái)
-    // - Chạy 2 vòng sipround (Xáo trộn)
-    // - XOR 'mi' vào v0 (Khóa dữ liệu lại)
-    for (; m < end; m += 8) {
-        // ... (code xử lý cắt byte) ...
-        v3 ^= mi;
-        for (int i = 0; i < 2; ++i) sipround(v0, v1, v2, v3);
-        v0 ^= mi;
-    }
+	const uint8_t* m = reinterpret_cast<const uint8_t*>(input.data());
+	size_t len = input.length();
+	const uint8_t* end = m + (len & ~7);
+	int left = len & 7;
+	uint64_t b = static_cast<uint64_t>(len) << 56;
 
-    // 3. Finalization (Giai đoạn kết thúc)
-    // Để tránh việc hai chuỗi khác nhau (ví dụ "abc" và "abc\0") sinh ra cùng hash,
-    // ta chèn độ dài chuỗi vào byte cuối cùng của trạng thái.
-    // Sau đó chạy thêm 4 vòng sipround nữa để đảm bảo tính ngẫu nhiên cực đại.
-    v2 ^= 0xff; 
-    for (int i = 0; i < 4; ++i) sipround(v0, v1, v2, v3);
+	// 2. Compression Loop (Vòng lặp nén)
+	// Cắt input thành từng block 8 bytes (64-bit) để xử lý.
+	// Với mỗi block 64-bit 'mi':
+	// - XOR 'mi' vào v3 (Nạp dữ liệu vào trạng thái)
+	// - Chạy 2 vòng sipround (Xáo trộn)
+	// - XOR 'mi' vào v0 (Khóa dữ liệu lại)
+	for (; m < end; m += 8) {
+		uint64_t mi;
+		std::memcpy(&mi, m, 8);
+		v3 ^= mi;
+		for (int i = 0; i < 2; ++i) sipround(v0, v1, v2, v3);
+		v0 ^= mi;
+	}
 
-    return v0 ^ v1 ^ v2 ^ v3; // Trả về kết quả 64-bit
+	// Nếu chuỗi không chia hết cho 8 thì ta chỉ việc dùng switch-case để nhặt nốt những byte bị chia dư ra cuối cùng.
+	// Đặc biệt, độ dài của chuỗi được gán vào byte cao nhất (dòng 22) để đảm bảo chuỗi abc và abc\0 sẽ cho ra mã băm khác hẳn nhau.
+	uint64_t t = 0;
+	switch (left) {
+		case 7: t |= static_cast<uint64_t>(m[6]) << 48; [[fallthrough]];
+		case 6: t |= static_cast<uint64_t>(m[5]) << 40; [[fallthrough]];
+		case 5: t |= static_cast<uint64_t>(m[4]) << 32; [[fallthrough]];
+		case 4: t |= static_cast<uint64_t>(m[3]) << 24; [[fallthrough]];
+		case 3: t |= static_cast<uint64_t>(m[2]) << 16; [[fallthrough]];
+		case 2: t |= static_cast<uint64_t>(m[1]) << 8; [[fallthrough]];
+		case 1: t |= static_cast<uint64_t>(m[0]); break;
+		case 0: break;
+	}
+	// Sau khi băm xong dữ liệu, thêm một hằng số 0xff vào v_2.
+	// Cho sipround chạy liên tục 4 lần để các bit được trộn lẫn.
+	// Cuối cùng, gom 4 biến v_0, v_1, v_2, v_3,
+	// XOR lại với nhau để ra số 64-bit cuối cùng.
+
+	b |= t;
+	v3 ^= b;
+	for (int i = 0; i < 2; ++i) sipround(v0, v1, v2, v3);
+	v0 ^= b;
+
+	v2 ^= 0xff;
+	for (int i = 0; i < 4; ++i) sipround(v0, v1, v2, v3);
+
+	return v0 ^ v1 ^ v2 ^ v3;
 }
 ```
 
 ### Tại sao an toàn hơn MurmurHash/CityHash?
-Các hàm băm nhanh (Non-cryptographic) như MurmurHash chỉ mạnh về tốc độ nhưng yếu về sự thay đổi bit (Avalanche Effect). Kẻ tấn công có thể dễ dàng tìm ra hai chuỗi `KeyA` và `KeyB` có cùng Hash.
-SipHash dùng một "Secret Key" (128-bit) làm tham số đầu vào. Nếu kẻ tấn công không biết Key này, hắn không thể tính trước được Hash của bất kỳ chuỗi nào. Do đó, hắn không thể tạo ra hàng triệu request có cùng Hash Index để làm nghẽn Cuckoo Table của ta.
+
+Các hàm băm nhanh (Non-cryptographic) như MurmurHash chỉ mạnh về tốc độ nhưng yếu về sự thay đổi bit nên chúng không đảm bảo tính an toàn cao nhất như SipHash với cơ chế Hiệu Ứng Thác Đổ (Avalanche Effect). Kẻ tấn công có thể dễ dàng tìm ra hai chuỗi `KeyA` và `KeyB` có cùng Hash.
+SipHash dùng một "Secret Key" (128-bit) làm tham số đầu vào. Nếu kẻ tấn công không biết Key này, hắn không thể tính trước được Hash của bất kỳ chuỗi nào, do đó không thể tạo ra hàng triệu request có cùng Hash Index để làm nghẽn Cuckoo Table. Tuy nhiên, giới hạn bảo mật của SipHash cũng nằm ở chính key size (128 bits) và output size (64 bits). Dù khả năng bị tấn công có thể giảm xuống còn 2^64 (nếu SipHash được ta dùng làm MAC), hoặc đoán ra được Secret Key ("2 mũ s-128"; với "2 mũ s" là số key đã thử và sai). Nhưng với lượng request vào hệ thống hiện tại (thường chỉ vài trăm nghìn request mỗi giây), kẻ tấn công không thể thực hiện được kiểu tấn công "hash flooding", trừ phi huy động một Botnet cực lớn với rất nhiều bot machine tấn công một instance duy nhất, hoặc dùng quantum computer.
 
 ## 2. Cuckoo Hashing
 
@@ -129,7 +168,7 @@ Một secret management system không chỉ lưu trong RAM mà phải lưu xuố
 
 Kallisto sử dụng B-Tree (không phải Binary Tree) để quản lý danh sách các đường dẫn (Path Index). Đây là cấu trúc dữ liệu tự cân bằng, tối ưu cho việc đọc theo khối.
 
-### The "Split Child" Logic (Cơ chế Phân thân)
+### The "Split Child" Logic
 
 Điểm khó nhất của B-Tree là khi một Node bị đầy (Full), nó phải tự tách làm đôi và đẩy key ở giữa lên cha. Đây là đoạn code xử lý việc đó (`src/btree_index.cpp`):
 
@@ -179,7 +218,8 @@ Khi `GET /prod/payment`:
 2.  Nếu tìm thấy -> Return True.
 3.  Nếu không tìm thấy và là Node lá (Leaf) -> Return False (Path invalid).
 4.  Nếu không phải lá -> Nhảy xuống Node con tương ứng và lặp lại.
--> Độ phức tạp luôn là Logarithm cơ số `degree` của N ($O(\log_t N)$). Với degree=100, cây chứa 1 triệu path chỉ cao khoảng 3 tầng -> Tối đa 3 lần nhảy pointers.
+
+Độ phức tạp luôn là Logarithm cơ số `degree` của N (O(log_t N)). Với degree=100, cây chứa 1 triệu path chỉ cao khoảng 3 tầng -> Tối đa 3 lần nhảy pointers.
 
 # APPLICATIONS
 
@@ -187,7 +227,7 @@ Khi `GET /prod/payment`:
 
 ### Storage Engine
 
-Ta sẽ sử dụng Binary Packing (giống Raft). Mục tiêu của ta là High Performance (Cuckoo Hash O(1)). Rất vô lý nếu xử lý dữ liệu trên RAM rất nhanh nhưng việc ứng dụng phải thao tác ghi đĩa siêu chậm do phải tạo hàng nghìn folder và gây inode overhead. Việc `load_snapshot` từ 1 file binary vào RAM sẽ nhanh hơn rất nhiều so với việc scan folder, do đó ta chọn Binary File như trong Raft.
+Ta sẽ sử dụng Binary Packing. Mục tiêu của ta là High Performance (Cuckoo Hash O(1)). Rất vô lý nếu xử lý dữ liệu trên RAM rất nhanh nhưng việc ứng dụng phải thao tác ghi đĩa siêu chậm do phải tạo hàng nghìn folder và gây inode overhead. Việc `load_snapshot` từ 1 file binary vào RAM sẽ nhanh hơn rất nhiều so với việc scan folder.
 
 ## Implementation 
 
@@ -203,12 +243,12 @@ KallistoServer::KallistoServer() {
     // We plan to benchmark 10,000 items. 
     // Cuckoo Hashing typically degrades if the load factor is above 50% (leads to cycles/infinite loops).
     // Capacity of 2 tables with size 16384 is 32,768 slots.
-    // Load Factor = 10,000 / 32,768 ≈ 30% (Very Safe).
+    // Load Factor = 10,000 / 32,768 ≈ 30% (should be safe).
     storage = std::make_unique<CuckooTable>(16384);
     path_index = std::make_unique<BTreeIndex>(5);
     persistence = std::make_unique<StorageEngine>();
 
-    // Recover state from disk
+    // Recover state from disk at /data/kallisto/
     auto secrets = persistence->load_snapshot();
     if (!secrets.empty()) {
         rebuild_indices(secrets);
@@ -308,9 +348,10 @@ Nếu Mục lục ok, nó mới dùng SipHash tính vị trí.
 Vì là Cuckoo Hash, nó chỉ cần check đúng 2 vị trí duy nhất.
 Vị trí 1 có không? -> Có thì trả về.
 Không có thì check Vị trí 2 -> Có thì trả về.
-Cả 2 đều không? -> Kết luận: Không tìm thấy. (Tốc độ cực nhanh $O(1)$).
+Cả 2 đều không? -> Kết luận: Không tìm thấy. O(1).
 Tóm tắt dưới dạng biểu đồ
-mermaid
+
+```mermaid
 sequenceDiagram
     participant User
     participant Server as Kallisto
@@ -332,6 +373,7 @@ sequenceDiagram
     Server->>Cuckoo: Lookup Key
     Cuckoo-->>Server: Found "123"
     Server-->>User: "123"
+```
 
 # ANALYSIS
 
@@ -417,3 +459,8 @@ graph TD
 Luồng đọc (Read Path) đi hoàn toàn trên RAM (B-Tree -> Cuckoo -> Return). Không có một thao tác File I/O nào cản đường. Dù có 1 item hay 10,000 items, thời gian trả về vẫn là hằng số (nhờ Cuckoo Hash). Không bị suy giảm hiệu năng khi dữ liệu lớn dần. B-Tree chặn đứng các request sai đường dẫn O(log N) trước cả khi hệ thống phải tính toán Hash, giúp tiết kiệm CPU cho các request hợp lệ.
 
 # CONCLUSION
+
+# Source:
+
+About Siphash
+https://docs.kernel.org/security/siphash.html

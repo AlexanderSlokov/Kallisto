@@ -29,7 +29,7 @@ test: build
 	@echo "\n--- Running Unit Tests ---\n"
 	@./$(BUILD_DIR)/kallisto_test
 
-bench: build
+benchmark: build
 	@echo "\n--- Running Benchmark (10,000 Ops) ---\n"
 	@echo "BENCH 10000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 

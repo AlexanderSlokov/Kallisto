@@ -8,12 +8,12 @@ KallistoServer::KallistoServer() {
     // We plan to benchmark 10,000 items. 
     // Cuckoo Hashing typically degrades if the load factor is above 50% (leads to cycles/infinite loops).
     // Capacity of 2 tables with size 16384 is 32,768 slots.
-    // Load Factor = 10,000 / 32,768 ≈ 30% (Very Safe).
+    // Load Factor = 10,000 / 32,768 ≈ 30% (should be safe).
     storage = std::make_unique<CuckooTable>(16384);
     path_index = std::make_unique<BTreeIndex>(5);
     persistence = std::make_unique<StorageEngine>();
 
-    // Recover state from disk
+    // Recover state from disk at /data/kallisto/
     auto secrets = persistence->load_snapshot();
     if (!secrets.empty()) {
         rebuild_indices(secrets);
