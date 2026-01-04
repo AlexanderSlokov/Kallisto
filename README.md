@@ -127,11 +127,33 @@ Regardless of how full the table is or how complex the insertion chain was, to f
 
 ## 3.3. B-Trees & Disk-Optimized Storage
 
-### 3.3.1. Why use B-Tree to validate Path?
+### 3.3.1. Theoretical Definition
+
+A B-Tree of order *m* is a self-balancing tree data structure that maintains sorted data and allows searches, sequential access, insertions, and deletions in logarithmic time. Unlike self-balancing binary search trees (like AVL or Red-Black trees), the B-Tree is generalized to allow nodes to have more than two children, making it optimized for systems that read and write large blocks of data (like Hard Drives or SSDs).
+
+**Key Properties:**
+1.  **Balance**: All leaf nodes appear at the same depth.
+2.  **Child Count**: Every node has at most *m* children. Every non-leaf node (except root) has at least m/2 children.
+3.  **Keys**: A node with k children contains k-1 keys.
+4.  **Ordering**: Keys in a node are sorted in increasing order, separating the ranges of keys covered by its subtrees.
+
+### 3.3.2. Complexity Analysis
+
+User operations (Search, Insert, Delete) run in O(log_m N) time. Where N is the total number of items and m is the branching factor (degree).
+
+Binary Trees have a branching factor of 2, leading to a height of log_2 N. B-Trees have a large branching factor (e.g., m=100), leading to a height of log_{100} N.
+
+*Example*: With 1,000,000 items:
+
+Binary Tree Height: ~20 levels.
+B-Tree (m=100) Height: ~3 levels.
+Since accessing a node may require a Disk I/O (which is slow), reducing the height from 20 to 3 results in a massive performance gain.
+
+### 3.3.3. Why use B-Tree to validate Path?
 
 A secret management system does not only store secrets in RAM but also needs to store them on disk (persistent storage). B-Tree optimizes the number of reads/writes (I/O) and path lookup in B-Tree takes O(log N), very fast to block malicious requests (e.g., user asks for path `/admin/`... but the system has never created this path, B-Tree will block the logic before even starting SipHash, calculating hash, and comparing with entries in Cuckoo Table).
 
-### 3.3.2. Flow Insert Path
+### 3.3.4. Flow Insert Path
 
 Example 1, if `PUT /prod/payment`:
 1.  System runs from root.
@@ -139,7 +161,7 @@ Example 1, if `PUT /prod/payment`:
 3.  Find the appropriate child branch (greater than/less than key).
 4.  Recursively down (Insert Non-Full).
 
-### 3.3.3. Flow Validate Path
+### 3.3.5. Flow Validate Path
 
 Example 2, if `GET /prod/payment`:
 1.  Compare `/prod/payment` with keys in the current node.
@@ -442,63 +464,47 @@ sequenceDiagram
 
 # VI. ANALYSIS
 
-## Time Complexity: 
+## 6.1. Time Complexity
 
-### For SipHash 
+### 6.1.1. SipHash (Hash Key Generation)
 
-It should be O(1). 
+O(L) where L is the length of the input string. SipHash processes the input in 8-byte blocks. For a key of length L, it performs ceil(L/8) compression rounds. Since the maximum length of a secret key is typically small and bounded (e.g., < 256 bytes), in practical terms for the context of a Hash Table, this is considered O(1) relative to the number of stored items N.
 
-Hence, time Complexity of SipHash is O(1).
+### 6.1.2. Cuckoo Hashing (Core Engine)
 
-### For Cuckoo Hashing up and indexing
+- **Lookup (GET)**: O(1) Worst Case. The algorithm checks exactly 2 locations: `T1[h1(x)]` and `T2[h2(x)]`. It never scans a list or probes deeper. This is the main selling point over Chaining (O(N) worst case) or Linear Probing (O(N) worst case under high load).
 
-It should be O(1). 
+- **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `MAX_DISPLACEMENTS`. Rehash (if table is full) takes O(N), but happens very rarely.
 
-Hence, time Complexity of Cuckoo Hashing up and indexing is O(1).
+### 6.1.3. B-Tree (Path Validation)
 
-### For B-Tree
+- **Search/Insert**: O(log_m N). With a large degree m (e.g., 100), the height of the tree is extremely small. This ensures that path validation is negligible compared to the network latency, serving as an efficient filter.
 
-It should be O(log n). 
+## 6.2. Space Complexity
 
-Hence, time Complexity of B-Tree is O(log n).
+- **Cuckoo Table**: O(N). The storage is linear to the number of items. The load factor is kept < 50% to ensure performance, meaning we trade some space (2x capacity) for guaranteed speed.
 
-## Space Complexity: 
-
-### For SipHash 
-
-It should be O(1).
-
-Hence, space Complexity of SipHash is O(1).
-
-### For Cuckoo Hashing up and indexing
-
-It should be O(1). 
-
-Hence, space Complexity of Cuckoo Hashing up and indexing is O(1).
-
-### For B-Tree
-
-It should be O(log n). 
-
-Hence, space Complexity of B-Tree is O(log n).
+- **B-Tree**: O(N). Stores unique paths. Space efficiency is high due to high node utilization.
 
 # VII. EXPERIMENTAL RESULTS
 
 Benchmark result on 04/01/2026 on development virtual machine (single thread).
 
-## 1. Methodology (Design of Experiment)
+## 7.1. Methodology (Design of Experiment)
 
-To evaluate the real performance of Kallisto, we have built a benchmark tool integrated directly into the CLI (`src/main.cpp`). The test was designed to simulate a real usage scenario of a集中 management Secret system.
+To evaluate the real performance of Kallisto, the report writer have built a benchmark tool integrated directly into the CLI (`src/main.cpp`). The test was designed to simulate a real usage scenario of a management secret system under extreme conditions about performance to withstanding the load of "Thundering Herd".
 
-### 1.1 Test Case Logic
+### 7.1.1 Test Case Logic
+
 Function `run_benchmark(count)` implements the test process in 2 phases (Phase):
 
 **Phase 1: Write Stress Test**
-- **Input**: Create `N` (e.g: 10,000) secret entries.
-- **Key Distribution**: Keys are generated in a sequence (`k0`, `k1`, ... `k9999`) to ensure uniqueness.
-- **Path Distribution**: Use Round-Robin mechanism on 10 fixed paths (`/bench/p0` to `/bench/p9`).
-  - *Purpose*: Test the processing capability of **B-Tree Index** when a node must contain many keys and the routing capability of the tree.
-- **Action**: Call `PUT` command. This is the step to test the speed of **SipHash**, the ability to handle collisions of **Cuckoo Hashing**, and the delay of **Storage Engine**.
+
+- Input: Create `N` (e.g: 10,000) secret entries.
+- Key Distribution: Keys are generated in a sequence (`k0`, `k1`, ... `k9999`) to ensure uniqueness.
+- Path Distribution: Use Round-Robin mechanism on 10 fixed paths (`/bench/p0` to `/bench/p9`).
+- Purpose: Test the processing capability of **B-Tree Index** when a node must contain many keys and the routing capability of the tree.
+- Action: Call `PUT` command. This is the step to test the speed of **SipHash**, the ability to handle collisions of **Cuckoo Hashing**, and the delay of **Storage Engine**.
 
 ```cpp
 // Code Snippet: Benchmark Loop
@@ -511,11 +517,12 @@ for (int i = 0; i < count; ++i) {
 ```
 
 **Phase 2: Read Stress Test**
-- **Input**: Query all `N` keys just written.
-- **Action**: Call `GET` command.
-- **Purpose**: Measure the read speed on RAM. Since all data is already in `CuckooTable` (Cache), this is a pure algorithm efficiency test without being affected by Disk I/O.
 
-### 1.2 Configuration Environments
+- Input: Query all `N` keys just written.
+- Action: Call `GET` command.
+- Purpose: Measure the read speed on RAM. Since all data is already in `CuckooTable` (Cache), this is a pure algorithm efficiency test without being affected by Disk I/O.
+
+### 7.1.2 Configuration Environments
 We perform measurement on 2 configurations Sync to clarify the trade-off between data security and performance:
 
 1.  **STRICT MODE (Default)**:
@@ -530,12 +537,12 @@ We perform measurement on 2 configurations Sync to clarify the trade-off between
 
 ---
 
-## 2. Experimental Results
+## 7.2 Experimental Results
 
 **Dataset**: 10,000 secret items.
 **Hardware**: Virtual Development Environment (Single Thread).
 
-### 2.1 Comparative Analysis
+### 7.2.1 Comparative Analysis
 
 | Metric | Strict Mode (Safe) | Batch Mode (Fast) | Improvement |
 | :--- | :--- | :--- | :--- |
@@ -545,9 +552,9 @@ We perform measurement on 2 configurations Sync to clarify the trade-off between
 
 *(Note: Read RPS slightly higher at "Batch Mode" because CPU is not interrupted by I/O tasks)*
 
-### 2.2 Visual Analysis
+### 7.2.2 Logging Analysis
 
-- **Strict Mode**:
+- **Strict Mode**: Write at a low level (~1.5k). This is the "bottleneck" (Bottleneck) due to hardware (Disk I/O), not reflecting the speed of the algorithm.
 
 ```bash
 [DEBUG] [B-TREE] Path validated at: /bench/p9
@@ -559,9 +566,9 @@ Hits      : 10000/10000
 > [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
 ```
 
-Write at a low level (~1.5k). This is the "bottleneck" (Bottleneck) due to hardware (Disk I/O), not reflecting the speed of the algorithm.
 
-- **Batch Mode**: 
+
+- **Batch Mode**: Write operations reach ~17.5k. This is the actual speed of **SipHash + Cuckoo Insert**.
 
 ```bash
 [INFO] [KallistoServer] Request: GET path=/bench/p9 key=k9999
@@ -577,17 +584,15 @@ OK (Saved to disk)
 > [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
 ```
 
-Write operations reach ~17.5k. This is the actual speed of **SipHash + Cuckoo Insert**.
+## 7.3. Theoretical expectations vs. Actual results
 
----
+### 7.3.1 Behavior Analysis
 
-## 3. Theoretical expectations vs. Actual results
-
-### 3.1 Behavior Analysis
 - **B-Tree Indexing**: With 10,000 item distributed into 10 paths, each leaf node of B-Tree contains around 1,000 items. The `validate_path` operation consumes O(log 10) which is almost instantaneous. The benchmark results show no significant delay when switching between paths.
+
 - **Cuckoo Hashing**: Hit Rate reaches **100%** (10000/10000). No fail cases due to table overflow (thanks to the 30% Load Factor).
 
-### 3.2 "Thundering Herd" Defense Provability
+### 7.3.2 "Thundering Herd" Defense Provability
 
 The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withstand "Thundering Herd" when thousands of services restart and fetch secrets simultaneously:
 
@@ -595,15 +600,26 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 2.  Every `GET` operation is resolved on RAM with O(1) complexity.
 3.  The system maintains low latency (< 1ms) even under high load.
 
-## 4. Conclusion
+## 7.4. Conclusion
 
 The experimental results confirm the accuracy of Kallisto's design:
 
-- **Write**: Batch Mode helps maximize RAM bandwidth, suitable for large-scale data imports (Bulk Load).
+- Write: Batch Mode helps maximize RAM bandwidth, suitable for large-scale data imports (Bulk Load).
 
-- **Read**: Always stable at high speeds due to the In-Memory Cuckoo Table architecture, meeting the requirements of a High-Performance Secret Management system.
+- Read: Always stable at high speeds due to the In-Memory Cuckoo Table architecture, meeting the requirements of a High-Performance Secret Management system.
 
-# Source:
+# VIII. CONCLUSION
+
+## 8.1. Summary
+
+### 8.1.1. Pros
+
+### 8.1.2. Cons
+
+## 8.2. Future Works
+
+
+# IX. Sources
 
 About Siphash
 https://docs.kernel.org/security/siphash.html
