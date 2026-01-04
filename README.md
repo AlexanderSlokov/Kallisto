@@ -1,51 +1,108 @@
-# HIGH-PERFORMANCE SECRET MANAGEMENT SYSTEM: IMPLEMENT A CUCKOO HASHING & B-TREE DATA STRUCTURE USING SIPHASH TO PREVENT HASHING COLLISIONS FROM DOS ATTACKS
+# "RESEARCH AND IMPLEMENTATION OF A HIGH-PERFORMANCE SECRET MANAGEMENT SYSTEM USING SIPHASH, CUCKOO HASHING AND B-TREE INDEXING"
 
-# INTRODUCTION
+# I. INTRODUCTION
+## 1.1. Context
+In these modern days, information security is of utmost importance. In particular, managing secrets (like API keys, passwords, tokens, etc.) is one of the most critical requirements of a security system. However, encrypting and storing secrets securely does not mean that the system can serve a large number of applications - services that read and write a large number of secrets in real-time. Managing secrets can cause performance and security issues if not handled correctly. A classic example is when a Kubernetes cluster restarts, thousands of containers in hundreds of pods will be scheduled, spin-up, crash-loop-back-off, request secrets... at the same time. Each container needs to be served secrets to start then the instances of the secret management system will be frozen due to flooding.
 
-# REQUIREMENTS
+What about using Redis and Hashicorp Vault? Redis is fast, and Vault is a Encrypt-as-a-service by default. But they have their own issues:
 
-## Benchmark Targets
+Redis can serve a large number of requests but it is not secure enough. Infact, Redis is not designed for this purpose, it is a high performance key-value store but "flat" (which is, does not understand what is a "secret path". It just see "/prod/db/secret" as a string.) If we try to use Redis to store secrets at "/prod/db/secret", we will have to validate that "/prod/db/secret" of the secret before reading it, and Redis have to scan all the text values to find the correct text value we want. 
 
-Với một server C++ tối ưu, các mốc hiệu năng cần được tối ưu tới các mốc sau:
+Hashicorp Vault, in the other hand, can not withstand the load of thousands of containers requesting secrets at the same time. Even HashiCorp also warns that if you need High Throughput then don't throw everything into one Vault cluster, but use Performance Standby or scale horizontally, which is obviously too expensive.
 
-### RPS (Requests Per Second): > 50,000 req/s.
+## 1.2. Problem Statement
 
-Cuckoo Hashing với O(1) là worst-case, với các request tra cứu Secret đơn giản, CPU chỉ mất vài micro giây để tìm thấy dữ liệu. Nếu con số này dưới 10k, cần nghi ngờ về việc phần mềm có bị lỗi I/O hay không.
+How to reach the pure performance speed of Redis but still keep the strict control (Structure/ Path Validation) of Vault?
 
-### Latency (Độ trễ): p99 < 1ms (Sub-millisecond).
+Why do traditional hash tables (Chain, Linear Probing) fear DoS Hash Flooding attacks? Because thay are vunerable to hash collisions, and hacker will knowleges about them can create a large number of keys to cause hash collisions.
 
-Cache Locality (Day 3). Việc sắp xếp các bucket của bảng băm nằm liên tục trong bộ nhớ giúp CPU không bị "cache miss", dẫn đến độ trễ cực thấp.
+Why does CPU consume time processing collisions? Because when there is a collision, CPU must execute expensive resolution mechanisms: Chaining (Traverse linked list). If using linked list, CPU must compare the new key with each old key in the list to check for duplicates. With N colliding elements, inserting N elements will take O(N^2) total CPU time. Open Addressing (Find empty position): CPU must perform "probes" (linear or square probing) to find the next empty slot. In a flooding attack, almost every CPU slot is occupied, leading to thousands of useless comparison calculations for each request. 
+
+## 1.3. Proposed Solution
+
+The report writer suggest the following solution:
+
+**SipHash**: To make the hash function unpredictable, prevent hackers from creating collisions.
+
+**Cuckoo Hashing**: To reach O(1) worst-case for Read, prevent the Thundering Herd problem.
+
+**B-Tree**: To act as a "gate", remove invalid path request with O(log N) requests before they reach the hash table.
+
+**Hybrid technical architecture**: Combine the hierarchical management of Path Validation with the speed of Cache on RAM.
+
+This code base, developing for the final project of Data Structure and Algorithm subject, is named "Kallisto" as a codename for documentation and recognition.
+
+But before we go into further details of the architecture, let's make clear about secret encrypt/decrypt and encrypt-as-rest: this research paper will not focus in these above requirements, neither the source code will be implemented, because they are out-of-scopes for Data Structure and Algorithm subject. But they will be on development plan in the future.
+
+## 1.4. Objectives
+
+1. Build a Prototype (Kallisto) to prove the feasibility of the architecture above.
+
+2. Perform Benchmark to compare the performance between the Safe (Strict Sync) and High Performance (Batch Mode).
 
 ---
 
-# THEORY
+## II. REQUIREMENTS & PROJECT SCOPE
 
+Based on the "Data Structures & Algorithms Final Project" rubric (Dr. Huynh Xuan Phung), this project falls under **Suggested Integrated Project #1: High-Speed Database Index**.
 
-## 1. SipHash
+### 2.1. Core Research Topics Covered
+This project integrates 3 major concepts from the Research Pool (Days 1–11):
+
+1.  **D7: Cuckoo Hashing & O(1) Worst-case**: Implementation of the primary storage engine using `kallisto::CuckooTable` to guarantee constant-time lookups.
+2.  **D6: Universal Hashing & SipHash**: Using `kallisto::SipHash` (cryptographically secure PRF) to prevent Hash Flooding DoS attacks.
+3.  **D11: B-Trees & Disk-Optimized Storage**: Using `kallisto::BTreeIndex` for managing secret paths and serving as a high-performance secondary index.
+
+### 2.2. Functional Requirements
+
+- **High Performance**:
+    - **Write RPS**: > 10,000 req/s (Batch Mode).
+    - **Read RPS**: > 5,000 req/s (Random Access).
+    - **Latency**: Sub-millisecond (p99 < 1ms).
+
+- **Security**:
+    - Must prevent Hash Flooding Attacks (via SipHash).
+    - Must validate secret paths effectively (via B-Tree).
+
+- **Implementation Constraints**:
+    - Language: C++17/20.
+    - No external libraries (boost, openssl) allowed for core logic.
+    - Must use smart pointers (`std::unique_ptr`, `std::shared_ptr`) for memory safety.
+
+### 2.3. Deliverables
+
+1.  **Source Code**: Complete C++ implementation in `/src` and `/include`.
+2.  **Report**: This document serving as the Research Synthesis Report.
+
+---
+
+# III. THEORY
+
+## 3.1. SipHash
 
 *"SipHash is a cryptographically secure PRF -- a keyed hash function -- that performs very well for short inputs, hence the name. It was designed by cryptographers Daniel J. Bernstein and Jean-Philippe Aumasson. It is intended as a replacement for some uses of: jhash, md5_transform, sha1_transform, and so forth."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
 
-SipHash dùng một chuỗi bí mật (secret key) được tạo ra bằng một phương thức ngẫu nhiên (random) để đảm bảo tính an toàn cao nhất. Bản chất, chúng ta không được phép để bất kì ai có thể đoán được chuỗi bí mật này, do đó sẽ là tối quan trọng khi sinh ra "Secret Key" này từ một nguồn ngẫu nhiên và cryptographically secure. *"SipHash has a very high security margin, with its 128-bit key. So long as the key is kept secret, it is impossible for an attacker to guess the outputs of the function, even if being able to observe many outputs, since 2^128 outputs is significant."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
+SipHash uses a secret string (secret key) to generate a hash value. This secret string is generated using a random method (random) to ensure the highest level of security. In essence, we are not allowed to let anyone know this secret string, so it is crucial to generate "Secret Key" from a random and cryptographically secure source. 
+
+*"SipHash has a very high security margin, with its 128-bit key. So long as the key is kept secret, it is impossible for an attacker to guess the outputs of the function, even if being able to observe many outputs, since 2^128 outputs is significant."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
 
 Linux implements the “2-4” variant of SipHash.
 
-### Chức năng - dùng để băm các khóa (Key/Secret Name)
+A secret management system uses hash table to query secret entry must face the risk of being attacked from DoS. If using a hash function that is easily predicted / weak in terms of cryptography, an attacker can create a large number of keys to cause collisions (Hash Flooding) to freeze the system.
 
-Một secret management system sử dụng hash table để truy vấn secret entry phải đối mặt với nguy cơ bị tấn công từ chối dịch vụ (DoS). Nếu dùng hàm băm thông thường / dễ đoán / yếu về mặt mật mã học, kẻ tấn công có thể tạo ra hàng loạt key gây trùng lặp (Hash Flooding) làm treo hệ thống, từ đó gây DoS.
+To protect the system from DoS attacks, we implement SipHash with a "secret key" `KALLISTO_SIPHASH_SECRET_KEY` to ensure that the hash table is immune to hash flooding attacks.
 
-Để bảo vệ hệ thống khỏi nguy cơ tấn công DoS, chúng ta triển khai SipHash với một "secret key" `KALLISTO_SIPHASH_SECRET_KEY` để đảm bảo các bảng băm miễn nhiễm với các cuộc tấn công hash flooding.
+### 3.1.2. But why SipHash?
 
-### But why SipHash?
+SipHash uses a bit-reversal (Add-Rotate-XOR) architecture to create noise bits (noise bit) in the hashing process without consuming too much CPU resources (bit rotation only takes place in one clock cycle, so it is very fast and effective in a CPU cycle).
 
-SipHash sử dụng kiến trúc đảo bit (Add-Rotate-XOR) để tạo ra các bit nhiễu (noise bit) trong quá trình băm mà không tiêu tốn quá nhiều tài nguyên tính toán của CPU (việc xoay bit chỉ diễn ra trong một clock cycle nên rất nhanh và hiệu quả trong một chu kỳ của CPU).
+### 3.1.3. SipHash Code Explanation
 
-## SipHash Code Explanation
+We implement SipHash-2-4 (2 compression rounds, 4 finalization rounds) according to the RFC 6421 standard and for best performance as the requirements stayed "simple, high-performance system".
 
-Ta triển khai SipHash-2-4 (2 vòng nén, 4 vòng kết thúc) theo đúng chuẩn RFC 6421 and for best performance as the requirements stayed "simple, high-performance system".
+#### 3.1.3.1. The "SipRound"
 
-### The "SipRound"
-
-Khía cạnh quan trọng nhất của SipHash nằm trong hàm `sipround`. Nó sử dụng cơ chế **ARX** (Addition, Rotation, XOR) để xáo trộn trạng thái 256-bit (4 biến `v0, v1, v2, v3` mỗi biến 64-bit).
+The most important aspect of SipHash lies in the `sipround` function. It uses the **ARX** (Addition, Rotation, XOR) mechanism to shuffle the 256-bit state (4 variables `v0, v1, v2, v3` each 64-bit).
 
 ```cpp
 // ARX Network (Add - Rotate - XOR)
@@ -73,11 +130,11 @@ static inline void sipround(uint64_t& v0, uint64_t& v1,
     v2 = rotl(v2, 32);
 }
 ```
-*Phân tích:* Phép cộng (`+`) lan truyền sự thay đổi bit từ thấp lên cao. Phép xoay (`rotl`) lan truyền bit sang ngang. Phép `XOR` kết hợp lại. Lặp đi lặp lại quá trình này biến thông tin đầu vào thành một "mớ hỗn độn" không thể đảo ngược nếu không có Key.
+*Analysis:* The addition (`+`) spreads bit changes from low to high. The rotation (`rotl`) spreads bits horizontally. The `XOR` combines them. Repeating this process transforms the input information into a "mess" that cannot be reversed without the Key.
 
-### Hashing Flow (Quy trình băm)
+#### 3.1.3.2. Hashing Flow
 
-Quy trình xử lý một chuỗi `input` diễn ra như sau (trích xuất từ `src/siphash.cpp`):
+Processing a string `input` proceeds as follows (extracted from `src/siphash.cpp`):
 
 ```cpp
 uint64_t SipHash::hash(
@@ -115,7 +172,7 @@ uint64_t SipHash::hash(
 	}
 
 	// Nếu chuỗi không chia hết cho 8 thì ta chỉ việc dùng switch-case để nhặt nốt những byte bị chia dư ra cuối cùng.
-	// Đặc biệt, độ dài của chuỗi được gán vào byte cao nhất (dòng 22) để đảm bảo chuỗi abc và abc\0 sẽ cho ra mã băm khác hẳn nhau.
+	// Đặc biệt, độ dài của chuỗi được gán vào byte cao nhất để đảm bảo chuỗi abc và abc\0 sẽ cho ra mã băm khác hẳn nhau.
 	uint64_t t = 0;
 	switch (left) {
 		case 7: t |= static_cast<uint64_t>(m[6]) << 48; [[fallthrough]];
@@ -144,33 +201,48 @@ uint64_t SipHash::hash(
 }
 ```
 
-### Tại sao an toàn hơn MurmurHash/CityHash?
+#### 3.1.4. Why SipHash is more secure than MurmurHash/CityHash?
 
-Các hàm băm nhanh (Non-cryptographic) như MurmurHash chỉ mạnh về tốc độ nhưng yếu về sự thay đổi bit nên chúng không đảm bảo tính an toàn cao nhất như SipHash với cơ chế Hiệu Ứng Thác Đổ (Avalanche Effect). Kẻ tấn công có thể dễ dàng tìm ra hai chuỗi `KeyA` và `KeyB` có cùng Hash.
-SipHash dùng một "Secret Key" (128-bit) làm tham số đầu vào. Nếu kẻ tấn công không biết Key này, hắn không thể tính trước được Hash của bất kỳ chuỗi nào, do đó không thể tạo ra hàng triệu request có cùng Hash Index để làm nghẽn Cuckoo Table. Tuy nhiên, giới hạn bảo mật của SipHash cũng nằm ở chính key size (128 bits) và output size (64 bits). Dù khả năng bị tấn công có thể giảm xuống còn 2^64 (nếu SipHash được ta dùng làm MAC), hoặc đoán ra được Secret Key ("2 mũ s-128"; với "2 mũ s" là số key đã thử và sai). Nhưng với lượng request vào hệ thống hiện tại (thường chỉ vài trăm nghìn request mỗi giây), kẻ tấn công không thể thực hiện được kiểu tấn công "hash flooding", trừ phi huy động một Botnet cực lớn với rất nhiều bot machine tấn công một instance duy nhất, hoặc dùng quantum computer.
+Fast hash functions (Non-cryptographic) like MurmurHash only strong about speed but weak about bit change so they do not ensure the highest security like SipHash with Avalanche Effect. An attacker can easily find two strings `KeyA` and `KeyB` have the same hash.
+SipHash uses a "Secret Key" (128-bit) as input parameter. If the attacker does not know the key, he cannot calculate the hash of any string in advance, so he cannot create millions of requests with the same hash index to congest the Cuckoo Table. However, the security limit of SipHash also lies in the key size (128 bits) and output size (64 bits). Although the possibility of being attacked can be reduced to 2^64 (if SipHash is used as MAC), or guessing the secret key ("2 ^ s-128"; with "2 ^ s" is the number of keys tried and failed). But with the amount of requests into the system (usually only several hundred thousand requests per second), the attacker cannot perform a "hash flooding" attack, except by mobilizing a Botnet with a very large number of bot machines attacking a single instance, or using a quantum computer.
 
-## 2. Cuckoo Hashing
+## 3.2. Cuckoo Hashing
 
-Chức năng: Lưu trữ các secret trong RAM để truy xuất tức thì. Bắt chước theo Hashicorp Vault: xin trước luôn luôn vùng nhớ RAM để không cho các thread khác truy cập. 
+### 3.2.1. The Architecture (Two Functions, Two Tables)
 
-Tại sao dùng: Cuckoo Hashing đảm bảo việc tìm kiếm luôn là O(1) trong trường hợp xấu nhất (Worst-case).
+Instead of relying on a single location for each key and only having one hash table to determine all the values stored, Cuckoo Hashing utilizes two independent hash functions and typically two hash tables. This design gives every key exactly two possible locations to reside, somewhere on the first table - or somewhere on the second table, else none existed. Hence it allows 
+the algorithm to resolve collisions by moving keys between their two potential 
+homes. 
 
-Ứng dụng: Làm "Secret Cache". Khi ứng dụng cần lấy mật khẩu, Kallisto sẽ trả về kết quả ngay lập tức mà không có độ trễ biến thiên, vì Cuckoo Hash không bao giờ bị tình trạng "dây chuyền" quá dài khi xung đột xảy ra.
+### 3.2.2. The Insertion Process: "Kicking Out" Strategy 
 
-## 3. B-Trees & Disk-Optimized Storage
+It works just like the cuckoo bird's behavior (cuckoo bird's younglings kicks the host’s children out of the nest): 
 
-Chức năng: Quản lý cấu trúc cây thư mục (Path-based secrets), thực hiện các truy vấn theo tiền tố (prefix search).
+We have a key “x”, we try to place it in a slot on the first table. If that slot is empty, insertion is complete. 
 
-### Tại sao dùng B-Tree để validate Path?
-Một secret management system không chỉ lưu trong RAM mà phải lưu xuống đĩa cứng (persistent storage). B-Tree tối ưu số lần đọc/ghi (I/O) và tìm path trong B-Tree tốn O(log N), rất nhanh để chặn các request rác (ví dụ: user hỏi path `/admin/`... nhưng trong hệ thống chưa từng tạo path này, B-Tree sẽ ngăn chặn logic tìm kiếm sai path trước cả khi hệ thống phải khởi động SipHash, tính toán băm hash và so sánh với các entry trong Cuckoo Table).
+If that slot is already occupied by key “y”, key “x” "kicks out" key “y” and takes its place. 
 
-## B-Tree Code Explanation
+The displaced key “y” must now move to the second table using hash function h_2(y). 
 
-Kallisto sử dụng B-Tree (không phải Binary Tree) để quản lý danh sách các đường dẫn (Path Index). Đây là cấu trúc dữ liệu tự cân bằng, tối ưu cho việc đọc theo khối.
+If y's new spot is also occupied, it evicts the incumbent key, triggering a chain reaction of displacements until a key lands in an empty slot (or a cycle is detected, triggering a rehash). 
 
-### The "Split Child" Logic
+### 3.2.3. The Guarantee: O(1) Worst-Case Lookup 
 
-Điểm khó nhất của B-Tree là khi một Node bị đầy (Full), nó phải tự tách làm đôi và đẩy key ở giữa lên cha. Đây là đoạn code xử lý việc đó (`src/btree_index.cpp`):
+Regardless of how full the table is or how complex the insertion chain was, to find a key, the algorithm only needs to check at most two locations: T_1[h_1(x)] and T_2[h_2(x)]. Since the number of checks is constant (always 2 placed slots we calculated), the search time complexity is guaranteed to be O(1) in the worst case, eliminating the performance degradation seen in Chaining or Linear Probing.
+
+## 3.3. B-Trees & Disk-Optimized Storage
+
+### 3.3.1. Why use B-Tree to validate Path?
+
+A secret management system does not only store secrets in RAM but also needs to store them on disk (persistent storage). B-Tree optimizes the number of reads/writes (I/O) and path lookup in B-Tree takes O(log N), very fast to block malicious requests (e.g., user asks for path `/admin/`... but the system has never created this path, B-Tree will block the logic before even starting SipHash, calculating hash, and comparing with entries in Cuckoo Table).
+
+### 3.3.2. B-Tree Code Explanation
+
+Kallisto uses B-Tree (not Binary Tree) to manage the list of paths (Path Index). This is a self-balancing data structure, optimized for reading in blocks.
+
+### 3.3.3. The "Split Child" Logic
+
+The most difficult part of B-Tree is when a Node is full, it must split into two and push the middle key up to the parent. This is the code that handles this (`src/btree_index.cpp`):
 
 ```cpp
 void BTreeIndex::split_child(Node* parent, int i, Node* child) {
@@ -205,37 +277,35 @@ void BTreeIndex::split_child(Node* parent, int i, Node* child) {
 }
 ```
 
-### Flow Insert Path
-Khi `PUT /prod/payment`:
-1.  Hệ thống chạy từ gốc (Root).
-2.  Nếu Root đầy (Full), gọi `split_child` để tách Root -> Chiều cao cây tăng lên 1.
-3.  Tìm nhánh con phù hợp (lớn hơn/nhỏ hơn key).
-4.  Đệ quy xuống dưới (Insert Non-Full).
+### 3.3.4. Flow Insert Path
 
-### Flow Validate Path
-Khi `GET /prod/payment`:
-1.  So sánh `/prod/payment` với các keys trong Node hiện tại.
-2.  Nếu tìm thấy -> Return True.
-3.  Nếu không tìm thấy và là Node lá (Leaf) -> Return False (Path invalid).
-4.  Nếu không phải lá -> Nhảy xuống Node con tương ứng và lặp lại.
+Example 1, if `PUT /prod/payment`:
+1.  System runs from root.
+2.  If root is full, call `split_child` to split root -> Tree height increases by 1.
+3.  Find the appropriate child branch (greater than/less than key).
+4.  Recursively down (Insert Non-Full).
 
-Độ phức tạp luôn là Logarithm cơ số `degree` của N (O(log_t N)). Với degree=100, cây chứa 1 triệu path chỉ cao khoảng 3 tầng -> Tối đa 3 lần nhảy pointers.
+### 3.3.5. Flow Validate Path
 
-# APPLICATIONS
+Example 2, if `GET /prod/payment`:
+1.  Compare `/prod/payment` with keys in the current node.
+2.  If found -> Return True.
+3.  If not found and is a leaf node (Leaf) -> Return False (Path invalid).
+4.  If not a leaf -> Jump to the corresponding child node and repeat.
 
-## Architecture (Mô hình Kallisto/Kaellir).
+Complexity is always Logarithm base `degree` of N (O(log_t N)). With degree=100, a tree containing 1 million paths is only 3 levels high, maximum 3 pointer jumps.
+
+# Applications
 
 ### Storage Engine
 
-Ta sẽ sử dụng Binary Packing. Mục tiêu của ta là High Performance (Cuckoo Hash O(1)). Rất vô lý nếu xử lý dữ liệu trên RAM rất nhanh nhưng việc ứng dụng phải thao tác ghi đĩa siêu chậm do phải tạo hàng nghìn folder và gây inode overhead. Việc `load_snapshot` từ 1 file binary vào RAM sẽ nhanh hơn rất nhiều so với việc scan folder.
+The report writer will use Binary File Packing (/data/kallisto/kallisto.db). The goal is High Performance so it will be very unreasonable if we process data on RAM then fast, but the application must interact with the disk very slowly due to creating thousands of folders by level causing inode overhead. Loading `load_snapshot` from 1 file binary into RAM will be much faster than scanning folders.
 
 ## Implementation 
 
-(Giải thích code Cuckoo, SipHash, B-Tree - *Copy code vào giải thích*).
-
 ## Cuckoo Table Code Explanation
 
-Ta chọn Cuckoo Hashing với kích thước 16384 slots (phục vụ test bài toán insert và retrieve 10 nghìn lượt) để đảm bảo hiệu suất cao nhất.
+We choose Cuckoo Hashing with a size of 16384 slots (serving to test the insert and retrieve 10 thousand times) to ensure the highest performance.
 
 ```cpp
 KallistoServer::KallistoServer() {
@@ -308,48 +378,44 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 }
 ```
 
-*Why is this code fast?* Vì toàn bộ thao tác chỉ là truy cập mảng `table_1` và `table_2` của Cuckoo Table trên RAM (Cache L1/L2). Khác với Chaining Hashmap (dùng danh sách liên kết khi va chạm), Cuckoo Hash lưu dữ liệu phẳng (Flat Array) và CPU Prefetcher ưu tiên truy cập mảng này để dễ dàng prefetch cả một mảng giá trị liền kề nhau từ RAM vào CPU Cache. Lookup (hàm `get`) chỉ kiểm tra đúng 2 vị trí `h1` và `h2` nên big O của nó là `O(1) + O(1) = O(1)`. Không bao giờ phải duyệt danh sách dài nên độ trễ đạt ổn định < 1ms.
+Why is this code fast? 
+
+Because it only access `table_1` and `table_2` of Cuckoo Table on RAM (Cache L1/L2). Unlike Chaining Hashmap (using linked list when collision), Cuckoo Hash stores data flat (Flat Array) and CPU Prefetcher prioritizes accessing this array to easily prefetch all consecutive values from RAM into CPU Cache. Lookup (function `get`) only checks 2 positions `h1` and `h2` so big O of it is `O(1) + O(1) = O(1)`. Never have to iterate a long list so the delay is stable < 1ms.
 
 
 ## Workflow
 
-Khi chương trình (main.cpp) chạy, quy trình thử nghiệm sẽ diễn ra như sau:
+When the program (main.cpp) runs, the test process will proceed as follows:
 
 ### 1. Startup
 
-Khi khởi tạo server (KallistoServer được khởi tạo):
+When initializing the server (KallistoServer is initialized):
 
-Nó chuẩn bị 2 cấu trúc dữ liệu:
+It prepares 2 data structures:
 
-- `B-Tree Index`: Sinh ra danh mục các đường dẫn (ví dụ: /prod/payment, /dev/db) hiện tại.
+- `B-Tree Index`: Generates a list of current paths (e.g., /prod/payment, /dev/db).
 
-- `Cuckoo Table`: Đây là nơi lưu trữ bí mật thực sự. Nó tạo sẵn số lượng Buckets cố định là `1024 buckets` để chờ điền dữ liệu.
+- `Cuckoo Table`: This is where the secrets are stored. It creates a fixed number of Buckets (1024 buckets) to wait for data to be filled.
 
 ### 2. Khi cất giấu bí mật (Lệnh PUT)
 
-Người dùng (hoặc code) ra yêu cầu: "Lưu trữ mật khẩu secret123 vào đường dẫn /prod/db với key là `'password'` và value là `'secret123'`" Đây là những gì Kallisto làm bên trong:
+User (or code) issues a request: "Store the password secret123 at the path /prod/db with key 'password' and value 'secret123'". Here's what Kallisto does inside:
 
-Kiểm tra Mục lục (B-Tree): Kallisto gọi function `put_secret`, mà bên trong function này có hàm `insert_path` kiểm tra xem đường dẫn `/prod/db` đã tồn tại hay chưa. Nếu chưa có thì nó ghi thêm dòng `/prod/db` vào B-tree index.
+Check Index (B-Tree): Kallisto calls function `put_secret`, which inside has function `insert_path` to check if the path `/prod/db` already exists. If not, it appends `/prod/db` to the B-tree index.
 
-Tạo `SecretEntry`: Nó đóng gói thông tin key, value, thời gian tạo vào một struct `SecretEntry`.
+Create `SecretEntry`: It packages the information key, value, and creation time into a struct `SecretEntry`.
 
-Cất vào kho (Cuckoo Hashing):
-Nó dùng thuật toán SipHash để tính toán xem `SecretEntry` nên đặt vào ô số mấy trong "`Cuckoo Table`". Nếu ô đó trống, nó sẽ đặt vào và kết thúc công việc ngay lập tức. Nếu ô đó đã có `SecretEntry` khác, nó sẽ "đá" (kick) entry cũ sang ô khác để lấy chỗ cho `SecretEntry` mới. `SecretEntry` cũ sẽ thực hiện cơ chế này cho đến khi tất cả `SecretEntry` đều có chỗ. (Đây là điểm đặc biệt của Cuckoo Hashing).
+Store in Cuckoo Table (Cuckoo Hashing): It uses the SipHash algorithm to calculate which bucket in "`Cuckoo Table`" the `SecretEntry` should be placed in. If the slot is empty, it will place it and end the task immediately. If the slot is already occupied by another `SecretEntry`, it will "kick" the old entry to another slot to make room for the new `SecretEntry`. The old `SecretEntry` will perform this mechanism until all `SecretEntry` are placed. (This is the special point of Cuckoo Hashing).
 
 ### 3. Khi lấy bí mật (Lệnh GET)
 
-Người dùng hỏi: "Cho tôi xin mật khẩu password trong ngăn /prod/db".
+User asks: "Give me the password password in the /prod/db vault".
 
-Qua cổng bảo vệ (B-Tree Validation):
-Việc đầu tiên: Kallisto check ngay cuốn "Mục lục".
-Nếu trong Mục lục không hề có dòng /prod/db -> Từ chối phục vụ ngay lập tức. (Đây là tính năng bảo mật để tránh kẻ gian mò mẫm đường dẫn lung tung).
-Lục kho (Cuckoo Lookup):
-Nếu Mục lục ok, nó mới dùng SipHash tính vị trí.
-Vì là Cuckoo Hash, nó chỉ cần check đúng 2 vị trí duy nhất.
-Vị trí 1 có không? -> Có thì trả về.
-Không có thì check Vị trí 2 -> Có thì trả về.
-Cả 2 đều không? -> Kết luận: Không tìm thấy. O(1).
-Tóm tắt dưới dạng biểu đồ
+Through the security gate (B-Tree Validation): Kallisto checks the "Index" right away. If the Index does not have the line /prod/db, it will reject service immediately. (This is a security feature to prevent criminals from probing random paths).
+
+If the Index is ok, it uses SipHash to calculate the position. Because it is Cuckoo Hash, it only needs to check exactly 2 positions. Position 1 exists? -> Yes then return. Position 2 exists? -> Yes then return. Both positions do not exist? -> Conclusion: Not found.
+
+Summarize in the form of a diagram
 
 ```mermaid
 sequenceDiagram
@@ -454,14 +520,14 @@ for (int i = 0; i < count; ++i) {
 Chúng tôi thực hiện đo lường trên 2 cấu hình Sync (Đồng bộ) để làm rõ sự đánh đổi giữa An toàn dữ liệu và Hiệu năng:
 
 1.  **STRICT MODE (Default)**:
-    - Cơ chế: `fsync` xuống đĩa cứng ngay sau mỗi lệnh PUT.
-    - Dự đoán: Rất chậm, bị giới hạn bởi IOPS của ổ cứng (thường < 2000 IOPS với SSD thông thường).
-    - Mục đích: Đảm bảo ACID, không mất dữ liệu dù mất điện đột ngột.
+    - Mechanic: `fsync` down to disk immediately after PUT.
+    - Prediction: Very slow, limited by disk IOPS (typically < 2000 IOPS with SSD).
+    - Purpose: Ensure ACID, no data loss even power failure.
 
 2.  **BATCH MODE (Optimized)**:
-    - Cơ chế: Chỉ ghi vào RAM, sync xuống đĩa khi user gọi lệnh `SAVE` hoặc đạt ngưỡng 10,000 ops.
-    - Dự đoán: Rất nhanh, đạt tốc độ tới hạn của CPU và RAM.
-    - Mục đích: Chứng minh độ phức tạp O(1) của thuật toán Cuckoo Hash.
+    - Mechanic: Only write to RAM, sync to disk when user calls `SAVE` or reach 10,000 ops.
+    - Prediction: Very fast, reach CPU and RAM limit.
+    - Purpose: Prove Cuckoo Hash O(1) complexity.
 
 ---
 
