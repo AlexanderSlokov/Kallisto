@@ -13,7 +13,8 @@ help:
 	@echo "  make build   - Configure and compile the project"
 	@echo "  make run     - Run the interactive CLI"
 	@echo "  make test    - Run Unit Tests"
-	@echo "  make bench   - Run Benchmark (10,000 Ops)"
+	@echo "  make bench   - Run Benchmark (Strict Mode)"
+	@echo "  make benchmark-batch - Run Benchmark (Fast/Batch Mode)"
 	@echo "  make clean   - Remove build artifacts"
 	@echo "  make logs    - View the server logs"
 
@@ -30,8 +31,12 @@ test: build
 	@./$(BUILD_DIR)/kallisto_test
 
 benchmark: build
-	@echo "\n--- Running Benchmark (10,000 Ops) ---\n"
-	@echo "BENCH 10000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+	@echo "\n--- Running Benchmark (10,000 Ops - STRICT MODE) ---\n"
+	@echo "MODE STRICT\nBENCH 10000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+
+benchmark-batch: build
+	@echo "\n--- Running Benchmark (10,000 Ops - BATCH MODE) ---\n"
+	@echo "MODE BATCH\nBENCH 10000\nSAVE\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 
 clean:
 	@echo "Cleaning build artifacts..."

@@ -20,7 +20,20 @@ KallistoServer::KallistoServer() {
     }
 }
 
-KallistoServer::~KallistoServer() = default;
+KallistoServer::~KallistoServer() {
+    // Ensure data is saved on exit
+    force_save();
+}
+
+void KallistoServer::set_sync_mode(SyncMode mode) {
+    sync_mode = mode;
+    if (sync_mode == SyncMode::IMMEDIATE) {
+        info("[CONFIG] Switched to IMMEDIATE Sync Mode (Safe).");
+        force_save(); // Flush any pending ops immediately
+    } else {
+        info("[CONFIG] Switched to BATCH Sync Mode (Performance).");
+    }
+}
 
 std::string KallistoServer::build_full_key(const std::string& path, const std::string& key) const {
     return path + "/" + key;
@@ -44,9 +57,10 @@ bool KallistoServer::put_secret(const std::string& path, const std::string& key,
     std::string full_key = build_full_key(path, key);
     bool result = storage->insert(full_key, entry);
 
-    // 4. Persist to Disk (In prototype, we sync on every write for safety)
+    // 4. Persistence
     if (result) {
-        persistence->save_snapshot(storage->get_all_entries());
+        unsaved_ops_count++;
+        check_and_sync();
     }
     
     return result;
@@ -82,7 +96,8 @@ bool KallistoServer::delete_secret(const std::string& path, const std::string& k
     bool result = storage->remove(full_key);
     
     if (result) {
-        persistence->save_snapshot(storage->get_all_entries());
+        unsaved_ops_count++;
+        check_and_sync();
     }
     
     return result;
@@ -99,6 +114,26 @@ void KallistoServer::rebuild_indices(const std::vector<SecretEntry>& secrets) {
         storage->insert(full_key, entry);
     }
     info("[RECOVERY] Completed.");
+}
+
+void KallistoServer::check_and_sync() {
+    bool should_sync = false;
+
+    if (sync_mode == SyncMode::IMMEDIATE) {
+        should_sync = true;
+    } else if (unsaved_ops_count >= SYNC_THRESHOLD) {
+        info("[PERSISTENCE] Sync Threshold reached (" + std::to_string(unsaved_ops_count) + " ops). Saving...");
+        should_sync = true;
+    }
+
+    if (should_sync) {
+        force_save();
+    }
+}
+
+void KallistoServer::force_save() {
+    persistence->save_snapshot(storage->get_all_entries());
+    unsaved_ops_count = 0;
 }
 
 } // namespace kallisto

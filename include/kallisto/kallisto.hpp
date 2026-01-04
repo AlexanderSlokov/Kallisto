@@ -35,10 +35,29 @@ public:
      */
     bool delete_secret(const std::string& path, const std::string& key);
 
+    enum class SyncMode {
+        IMMEDIATE, // Sync to disk after every write (Safe, Slow)
+        BATCH      // Sync only when threshold reached (Unsafe, Fast)
+    };
+
+    void set_sync_mode(SyncMode mode);
+
+    /**
+     * Manuall triggers a disk sync.
+     * Useful when batch mode is enabled.
+     */
+    void force_save();
+
 private:
     std::unique_ptr<CuckooTable> storage;
     std::unique_ptr<BTreeIndex> path_index;
     std::unique_ptr<StorageEngine> persistence;
+
+    // Persistence Strategy
+    SyncMode sync_mode = SyncMode::IMMEDIATE; // Default to safe
+    size_t unsaved_ops_count = 0;
+    const size_t SYNC_THRESHOLD = 10000; // Sync after 10,000 operations
+    void check_and_sync();
 
     std::string build_full_key(const std::string& path, const std::string& key) const;
 

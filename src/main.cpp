@@ -18,6 +18,8 @@ void print_help() {
     std::cout << "  GET <path> <key>           Retrieve a secret\n";
     std::cout << "  DEL <path> <key>           Delete a secret\n";
     std::cout << "  BENCH <count>              Run performance benchmark\n";
+    std::cout << "  SAVE                       Force sync to disk\n";
+    std::cout << "  MODE <STRICT|BATCH>        Set persistence mode\n";
     std::cout << "  EXIT                       Quit\n";
 }
 
@@ -38,7 +40,7 @@ void handle_put(std::stringstream& ss) {
     }
 
     if (path.empty() || key.empty() || value.empty()) {
-        std::cout << "Error: PUT requires path, key, and value.\n";
+        kallisto::warn("PUT requires path, key, and value.");
         return;
     }
 
@@ -53,7 +55,7 @@ void handle_get(std::stringstream& ss) {
     std::string path, key;
     ss >> path >> key;
     if (path.empty() || key.empty()) {
-        std::cout << "Error: GET requires path and key.\n";
+        kallisto::warn("GET requires path and key.");
         return;
     }
 
@@ -76,7 +78,7 @@ void handle_del(std::stringstream& ss) {
 }
 
 void run_benchmark(int count) {
-    std::cout << "--- Starting Benchmark (" << count << " ops) ---\n";
+    kallisto::info("--- Starting Benchmark (" + std::to_string(count) + " ops) ---");
     
     auto start = std::chrono::high_resolution_clock::now();
     
@@ -130,7 +132,27 @@ void process_line(std::string line) {
     else if (cmd == "BENCH") {
         int count;
         if (ss >> count) run_benchmark(count);
-        else std::cout << "Usage: BENCH <count>\n";
+        else kallisto::warn("Usage: BENCH <count>");
+    }
+    else if (cmd == "SAVE") {
+        server->force_save();
+        std::cout << "OK (Saved to disk)\n";
+    }
+    else if (cmd == "MODE") {
+        std::string mode_str;
+        ss >> mode_str;
+        // toupper mode_str
+        for (auto & c: mode_str) c = toupper(c);
+
+        if (mode_str == "STRICT" || mode_str == "IMMEDIATE") {
+            server->set_sync_mode(kallisto::KallistoServer::SyncMode::IMMEDIATE);
+            std::cout << "OK (Mode: STRICT)\n";
+        } else if (mode_str == "BATCH" || mode_str == "PERF") {
+            server->set_sync_mode(kallisto::KallistoServer::SyncMode::BATCH);
+            std::cout << "OK (Mode: BATCH)\n";
+        } else {
+            kallisto::warn("Usage: MODE <STRICT|BATCH>");
+        }
     }
     else if (cmd == "EXIT" || cmd == "QUIT") {
         exit(0);
@@ -139,7 +161,7 @@ void process_line(std::string line) {
         print_help();
     }
     else if (!cmd.empty()) {
-        std::cout << "Unknown command. Type HELP.\n";
+        kallisto::warn("Unknown command. Type HELP.");
     }
 }
 
@@ -157,7 +179,7 @@ int main(int argc, char** argv) {
     server = std::make_unique<kallisto::KallistoServer>();
 
     // Interactive Mode
-    std::cout << "Kallisto Server Ready. Type HELP for commands.\n";
+    kallisto::info("Kallisto Server Ready. Type HELP for commands.");
     
     std::string line;
     std::cout << "> ";
