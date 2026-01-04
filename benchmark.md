@@ -14,6 +14,7 @@ Completed optimization of `CuckooTable` capacity (16,384 slots) to support 10,00
 | **Write RPS** | ~100 - 1,500 | Limited by Disk I/O (fsync latency). High variance depending on environment (SSD vs HDD vs Container Mount). |
 | **Read RPS** | **~4,500 - 5,600** | **Pure In-Memory Speed**. Limited only by CPU (SipHash calculation). |
 | **Hit Rate** | **100%** | 10k/10k items found. Zero collisions kicked. |
+| **Batch Write RPS** | **~17,500+** | **New Feature**: Using `MODE BATCH` (10k ops). Massive speedup (10x) vs Strict Mode. |
 
 ## 🛡️ "Thundering Herd" Defense
 The benchmark proves Kallisto can handle high concurrency Read traffic (Thundering Herd) effectively:
