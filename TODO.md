@@ -9,11 +9,11 @@
     - [x] Thiết kế struct `SecretEntry`.
 - [x] **Ngày 2 (28/12): Trụ cột 1 - SipHash (Security)**
     - [x] Implement thuật toán SipHash (chống Hash Flooding).
-    - [ ] Viết Unit Test cơ bản kiểm tra tính nhất quán của Hash (Cần bổ sung vào `test_main.cpp`).
+    - [x] Viết Unit Test cơ bản kiểm tra tính nhất quán của Hash (Đã có trong `tests/test_main.cpp`).
 - [/] **Ngày 3 & 4 (29/12 - 30/12): Trụ cột 2 - Cuckoo Hashing (Performance)**
     - [x] Implement logic `insert()` với cơ chế "kicking" (đá key).
     - [x] Implement `lookup()` và `delete()` với độ phức tạp $O(1)$.
-    - [ ] Implement `rehash()` để tăng kích thước bảng khi đầy (Hiện đang là stub).
+    - [SUSPENDED] Implement `rehash()` để tăng kích thước bảng khi đầy (Scope MVP: Return false khi đầy).
     - [x] **Review:** Tự tay code lại hàm `insert` 3 lần để thuộc logic cho buổi vấn đáp.
 
 ---
@@ -25,21 +25,22 @@
     - [x] Xây dựng cấu trúc cây để quản lý thư mục (ví dụ: `/prod/db/`).
     - [x] Tích hợp B-Tree làm lớp validate đường dẫn trước khi tra cứu key.
 - [ ] **Ngày 5.5 (01/01): Giai đoạn 2.5 - Double-Defense Persistence**
-    - [ ] **Primary:** Setup `/data/kallisto` làm storage gốc trên disk.
-    - [ ] **Secondary:** Implement Async Dispatcher để đẩy data sang Postgres "Bomb Shelter". (không cần làm trong giai đoạn alpha- proof of concept này. Challenge: Đảm bảo performance không bị drop khi thực hiện dual-write).
+    - [x] **Primary:** Setup `/data/kallisto` làm storage gốc trên disk (`storage_engine.cpp`).
+    - [x] **Optimization:** Implement Batch Sync Mode (Avoid `fsync` bottleneck on every write).
+    - [SUSPENDED] **Secondary:** Implement Async Dispatcher để đẩy data sang Postgres "Bomb Shelter". (Skipped for MVP).
 - [ ] **Ngày 6 (01/01): API Layer & Kaellir Agent**
-    - [ ] Viết API đơn giản cho Server (nhận command line/socket).
-    - [ ] Code Agent `Kaellir` để giả lập client gửi request.
+    - [x] Viết API đơn giản cho Server (CLI Interactive Mode trong `main.cpp`).
+    - [SUSPENDED] Code Agent `Kaellir` để giả lập client gửi request (Tích hợp lệnh `BENCH` vào CLI).
 
 ---
 
 ## 📈 GIAI ĐOẠN 3: DATA & WRITING (02/01 - 04/01)
 *Mục tiêu: Biến code thành con số và nội dung báo cáo.*
 
-- [ ] **Ngày 7 (02/01): Benchmark (Tiền đề báo cáo)**
-    - [ ] Chạy benchmark đo RPS và Latency.
-    - [ ] So sánh với `std::map` để vẽ biểu đồ chênh lệch hiệu năng.
-    - [ ] Chụp lại tất cả các biểu đồ để đưa vào báo cáo.
+- [x] **Ngày 7 (02/01): Benchmark (Tiền đề báo cáo)**
+    - [x] Chạy benchmark đo RPS và Latency.
+    - [x] So sánh với `std::map` để vẽ biểu đồ chênh lệch hiệu năng.
+    - [x] Chụp lại tất cả các biểu đồ để đưa vào báo cáo (Xem `benchmark.md`).
 - [ ] **Ngày 8 & 9 (03/01 - 04/01): Sprint Writing (Báo cáo 20 trang)**
     - [ ] Viết chương Lý thuyết (SipHash, Cuckoo, B-Tree).
     - [ ] Viết chương Triển khai (Code snippets + giải thích).
@@ -63,3 +64,4 @@
 
 > [!TIP]
 > **Chiến thuật "Code-to-Theory":** Mỗi khi code xong một phần (ví dụ Cuckoo Hash), hãy note lại ngay 3 ý chính tại sao nó nhanh. Việc này giúp bạn vừa code vừa ôn tập lý thuyết luôn, không đợi đến ngày cuối.
+> **Performance Tip:** Khi demo benchmark, hãy chuyển sang `MODE BATCH` để đạt RPS cao nhất (> 50k), chứng minh thuật toán Cuckoo Hash nhanh thế nào khi không bị đĩa cứng kìm hãm.
