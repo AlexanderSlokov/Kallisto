@@ -465,24 +465,36 @@ Chúng tôi thực hiện đo lường trên 2 cấu hình Sync (Đồng bộ) �
 
 ---
 
-## 2. Experimental Results (Kết quả thực nghiệm)
+## 2. Experimental Results
 
 **Dataset**: 10,000 secret items.
 **Hardware**: Virtual Development Environment (Single Thread).
 
-### 2.1 Comparative Analysis (So sánh)
+### 2.1 Comparative Analysis
 
 | Metric | Strict Mode (Safe) | Batch Mode (Fast) | Improvement |
 | :--- | :--- | :--- | :--- |
 | **Write RPS** | ~1,572 req/s | **~17,564 req/s** | **~11.1x** |
 | **Read RPS** | ~5,654 req/s | **~6,394 req/s*** | ~1.1x |
-| **Total Time** | ~12.3s | **~2.1s** | Nhanh hơn 6 lần |
+| **Total Time** | ~12.3s | **~2.1s** | up to 6x |
 
-*(Note: Read RPS tăng nhẹ ở Batch Mode do CPU không bị ngắt quãng bởi các tác vụ chờ I/O ngầm)*
+*(Note: Read RPS slightly higher at "Batch Mode" because CPU is not interrupted by I/O tasks)*
 
 ### 2.2 Visual Analysis
-- **Strict Mode**: Biểu đồ Write đi ngang ở mức thấp (~1.5k). Đây là "nút thắt cổ chai" (Bottleneck) do phần cứng (Disk I/O), không phản ánh tốc độ thuật toán.
 
+- **Strict Mode**:
+
+```bash
+[DEBUG] [B-TREE] Path validated at: /bench/p9
+[DEBUG] [CUCKOO] Looking up secret...
+[INFO] [CUCKOO] HIT! Value retrieved.
+Write Time: 114.6636s | RPS: 87.2116
+Read Time : 1.4391s | RPS: 6948.9531
+Hits      : 10000/10000
+> [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
+```
+
+Write at a low level (~1.5k). This is the "bottleneck" (Bottleneck) due to hardware (Disk I/O), not reflecting the speed of the algorithm.
 
 - **Batch Mode**: 
 
@@ -500,26 +512,31 @@ OK (Saved to disk)
 > [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
 ```
 
-Write vọt lên ~17.5k. Đây chính là tốc độ thực của **SipHash + Cuckoo Insert**.
+Write operations reach ~17.5k. This is the actual speed of **SipHash + Cuckoo Insert**.
 
 ---
 
-## 3. Theoretical vs. Actual (Lý thuyết và Thực tế)
+## 3. Theoretical expectations vs. Actual results
 
 ### 3.1 Behavior Analysis
-- **B-Tree Indexing**: Với 10,000 item chia vào 10 path, mỗi node lá của B-Tree chứa khoảng 1,000 item. Việc `validate_path` chỉ tốn O(log 10) gần như tức thời. Kết quả benchmark cho thấy không có độ trễ đáng kể khi chuyển đổi giữa các path.
-- **Cuckoo Hashing**: Hit Rate đạt **100%** (10000/10000). Không có trường hợp nào bị fail do bảng đầy (nhờ Load Factor 30% hợp lý).
+- **B-Tree Indexing**: With 10,000 item distributed into 10 paths, each leaf node of B-Tree contains around 1,000 items. The `validate_path` operation consumes O(log 10) which is almost instantaneous. The benchmark results show no significant delay when switching between paths.
+- **Cuckoo Hashing**: Hit Rate reaches **100%** (10000/10000). No fail cases due to table overflow (thanks to the 30% Load Factor).
 
 ### 3.2 "Thundering Herd" Defense Provability
-Kết quả Read RPS (~6,400 req/s) chứng minh khả năng chống chịu của Kallisto trước "Thundering Herd" khi hàng nghìn service khởi động lại và lấy Secret cùng lúc:
-1.  Kallisto **không truy cập đĩa**.
-2.  Mọi thao tác `GET` được giải quyết trên RAM với độ phức tạp O(1).
-3.  Hệ thống duy trì được độ trễ thấp (< 1ms) ngay cả khi đang chịu tải cao.
+
+The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withstand "Thundering Herd" when thousands of services restart and fetch secrets simultaneously:
+
+1.  Kallisto **does not access disk**.
+2.  Every `GET` operation is resolved on RAM with O(1) complexity.
+3.  The system maintains low latency (< 1ms) even under high load.
 
 ## 4. Conclusion
-Kết quả thực nghiệm khẳng định thiết kế của Kallisto là chính xác:
-- **Write**: Batch Mode giúp tận dụng tối đa băng thông RAM, phù hợp cho các đợt import dữ liệu lớn (Bulk Load).
-- **Read**: Luôn ổn định ở tốc độ cao nhờ kiến trúc In-Memory Cuckoo Table, đáp ứng tốt yêu cầu của một hệ thống High-Performance Secret Management.
+
+The experimental results confirm the accuracy of Kallisto's design:
+
+- **Write**: Batch Mode helps maximize RAM bandwidth, suitable for large-scale data imports (Bulk Load).
+
+- **Read**: Always stable at high speeds due to the In-Memory Cuckoo Table architecture, meeting the requirements of a High-Performance Secret Management system.
 
 # Source:
 
