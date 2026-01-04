@@ -1,6 +1,6 @@
-# Day 7: Benchmark Results & Analysis
+# Benchmark Results & Analysis
 
-## 🚀 Performance Metrics
+## Performance Metrics
 Completed optimization of `CuckooTable` capacity (16,384 slots) to support 10,000 secret items without collisions. 
 
 ### Benchmark Config
@@ -16,7 +16,7 @@ Completed optimization of `CuckooTable` capacity (16,384 slots) to support 10,00
 | **Hit Rate** | **100%** | 10k/10k items found. Zero collisions kicked. |
 | **Batch Write RPS** | **~17,500+** | **New Feature**: Using `MODE BATCH` (10k ops). Massive speedup (10x) vs Strict Mode. |
 
-## 🛡️ "Thundering Herd" Defense
+## "Thundering Herd" Defense
 The benchmark proves Kallisto can handle high concurrency Read traffic (Thundering Herd) effectively:
 
 ```mermaid
@@ -37,9 +37,6 @@ graph TD
 ```
 
 ### Why it works?
-1.  **B-Tree Shield**: Invalid paths (e.g., scanners, misconfigured apps) are rejected at $O(\log N)$ before even hashing.
-2.  **Cuckoo Speed**: Valid secrets are retrieved in constant time $O(1)$.
+1.  **B-Tree Shield**: Invalid paths (e.g., scanners, misconfigured apps) are rejected at O(log N) before even hashing.
+2.  **Cuckoo Speed**: Valid secrets are retrieved in constant time O(1).
 3.  **Read-Only Safety**: Reads never touch the disk, completely bypassing the I/O bottleneck.
-
-## 📝 Next Steps (Report)
-These graphs and numbers are ready to be included in **Chapter 3: Experimental Results** of the final report.
