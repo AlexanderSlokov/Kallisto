@@ -51,9 +51,10 @@
 ## ⚔️ GIAI ĐOẠN 4: REFINEMENT & DEFENSE (05/01 - 07/01)
 *Mục tiêu: Đạt trạng thái sẵn sàng chiến đấu.*
 
-- [ ] **Ngày 10 (05/01): Refactor & Clean Code**
-    - [ ] Kiểm tra memory leak, tối ưu `smart pointers`.
-    - [ ] Viết comment giải thích (phòng trường hợp thầy đọc code trực tiếp).
+- [ ] **Ngày 10 (05/01): Presentation Prep**
+    - [ ] Làm Slide Powerpoint (10 slides).
+    - [ ] Demo script (quay video màn hình terminal).
+    - [ ] Q&A Rehearsal (Chuẩn bị trả lời thầy cô).
 - [ ] **Ngày 11 (06/01): Mock Defense & Video Demo**
     - [ ] Quay video demo giới thiệu tính năng MVP "Path-Based Retrieval".
     - [ ] Tự trả lời các câu hỏi về Big-O, Collision handling.
@@ -65,3 +66,41 @@
 > [!TIP]
 > **Chiến thuật "Code-to-Theory":** Mỗi khi code xong một phần (ví dụ Cuckoo Hash), hãy note lại ngay 3 ý chính tại sao nó nhanh. Việc này giúp bạn vừa code vừa ôn tập lý thuyết luôn, không đợi đến ngày cuối.
 > **Performance Tip:** Khi demo benchmark, hãy chuyển sang `MODE BATCH` để đạt RPS cao nhất (> 50k), chứng minh thuật toán Cuckoo Hash nhanh thế nào khi không bị đĩa cứng kìm hãm.
+
+---
+
+## 🚀 FUTURE ROADMAP (System Design & Architecture Learning)
+
+Phần này dành cho "Later Works" (sau đồ án), tập trung vào các kỹ thuật Software Architecture nâng cao để biến Kallisto thành một Production-Grade System.
+
+### 1. Security Layer (Defense in Depth)
+- [ ] **Encryption-at-Rest** (Mã hóa lưu trữ):
+  - *Vấn đề*: File `kallisto.db` hiện tại lưu plaintext. Mất ổ cứng là mất hết.
+  - *Giải pháp*: Tích hợp **AES-256-GCM**. Encrypt value trước khi ghi xuống đĩa. Chỉ giữ Master Key trên RAM.
+  - *Bài học*: Key Management Life-cycle (Rotation, Unseal).
+
+- [ ] **Secure Memory Allocator** (Bảo vệ RAM):
+  - *Vấn đề*: Memory Dump hoặc Swap file có thể làm lộ secret.
+  - *Giải pháp*: Implement custom allocator sử dụng `mlock()` (cấm swap) và `explicit_bzero` (xóa trắng RAM ngay khi free).
+  - *Bài học*: OS Memory Management & Low-level Systems Programming.
+
+- [ ] **Access Control List (ACL)** (Phân quyền):
+  - *Vấn đề*: Ai có quyền truy cập CLI cũng đọc được mọi thứ.
+  - *Giải pháp*: Thêm cơ chế Authentication (Token-based) và Authorization (Path-based Policy như Vault).
+  - *Bài học*: RBAC Design Patterns.
+
+### 2. Scalability & Reliability (Mở rộng & Tin cậy)
+- [ ] **WAL (Write-Ahead Logging)**:
+  - *Vấn đề*: Strict Mode quá chậm, Batch Mode rủi ro mất data.
+  - *Giải pháp*: Ghi vào Append-Only Log file (tuần tự, log rotation) trước khi ghi vào RAM. Nếu crash, replay lại LOG.
+  - *Bài học*: Cơ chế cốt lõi của mọi Database (Postgres, Redis AOF).
+
+- [ ] **Network Interface (gRPC/HTTP API)**:
+  - *Vấn đề*: Hiện tại chỉ dùng CLI cục bộ (Unix Pipe).
+  - *Giải pháp*: Viết một lớp Wrapper (Adapter Pattern) expose API qua HTTP/2 (gRPC) để các service khác gọi vào.
+  - *Bài học*: API Design, Distributed Systems Communication.
+
+- [ ] **Replication (Raft Consensus)**:
+  - *Vấn đề*: Single Point of Failure. Server chết là hệ thống dừng.
+  - *Giải pháp*: Dựng Cluster 3 node, dùng thuật toán Raft để bầu Leader.
+  - *Bài học*: Distributed Consensus (Đỉnh cao của System Design).
