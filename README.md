@@ -612,14 +612,47 @@ The experimental results confirm the accuracy of Kallisto's design:
 
 ## 8.1. Summary
 
+The "Kallisto" project successfully demonstrates that a hybrid data structure approach—combining the hierarchical discipline of B-Trees with the raw speed of Cuckoo Hashing—can solve modern secret management challenges effectively. It is possible to build a system that is resilient to Hash Flooding attacks (via SipHash) while maintaining high throughput.
+
 ### 8.1.1. Pros
+
+High Performance: Achieved ~17,000 Write RPS (Batch Mode) and ~6,400 Read RPS, significantly outperforming traditional file-based storage systems and potentially rivaling Redis in specific workloads.
+
+Predictable Latency: The implementation of Cuckoo Hashing guarantees O(1) worst-case lookup time, eliminating the "tail latency" problem found in Chaining or Linear Probing implementations.
+
+Security-First Design: By integrating SipHash-2-4 as the core hash function, the system is natively immune to algorithm complexity attacks (Hash Flooding DoS).
+
+Path Validation: The B-Tree index acts as an effective firewall, rejecting invalid path requests with O(log N) efficiency before they consume expensive hashing resources.
+
+Flexibility: The "Dual Sync Mode" architecture allows administrators to choose the right trade-off between Data Safety (Strict Mode) and ingestion speed (Batch Mode).
 
 ### 8.1.2. Cons
 
+Single Point of Failure: The current prototype runs as a single instance. If the server crashes, service is interrupted (though data is safe on disk).
+
+Encryption-at-Rest Missing: Secrets are currently stored as plaintext binary on disk (`kallisto.db`). While efficient, this is not suitable for production secret management without filesystem-level encryption.
+
+Strict Mode Bottleneck: In Strict Mode, the system is effectively I/O bound (~1,500 RPS) due to the heavy cost of `fsync()` syscalls, limiting its use for high-write workloads.
+
 ## 8.2. Future Works
 
+To evolve Kallisto from a robust academic prototype to a production-grade system, the following roadmap is proposed:
 
-# IX. Sources
+1.  Security Hardening:
 
-About Siphash
-https://docs.kernel.org/security/siphash.html
+Encryption-at-Rest: Implement AES-256-GCM to encrypt values before flushing to disk, protecting against physical drive theft.
+Secure Memory Allocator: Use `mlock()` and `explicit_bzero()` to prevent secret leakage via swap files or core dumps.
+Access Control List (ACL): Implement Token-based Authentication and RBAC to restrict access to specific paths.
+
+2.  Scalability & Reliability:
+
+Write-Ahead Logging (WAL): Replace the current snapshot mechanism with an Append-Only Log to provide better durability without the performance penalty of full snapshots.
+Network Interface (gRPC): Expose the API over HTTP/2 (gRPC) to allow remote microservices to fetch secrets.
+Replication: Implement the Raft Consensus Algorithm to support multi-node clustering, ensuring High Availability.
+
+# IX. References
+
+1.  Bernstein, D. J., & Aumasson, J. P. (2012). "SipHash: a fast short-input PRF." [https://131002.net/siphash/](https://131002.net/siphash/)
+2.  Pagh, R., & Rodler, F. F. (2001). "Cuckoo Hashing." *Journal of Algorithms*, 51(2), 122-144.
+3.  Bayer, R., & McCreight, E. (1972). "Organization and Maintenance of Large Ordered Indexes." *Acta Informatica*, 1(3), 173-189.
+4.  "SipHash - a fast short-input PRF." [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
