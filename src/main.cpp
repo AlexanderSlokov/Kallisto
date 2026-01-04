@@ -12,7 +12,7 @@
 std::unique_ptr<kallisto::KallistoServer> server;
 
 void print_help() {
-    std::cout << "Kallisto KV Store - Command Line Interface\n";
+    std::cout << "Kallisto Command Line Interface\n";
     std::cout << "Usage:\n";
     std::cout << "  PUT <path> <key> <value>   Store a secret\n";
     std::cout << "  GET <path> <key>           Retrieve a secret\n";
