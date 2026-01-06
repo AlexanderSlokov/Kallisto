@@ -26,4 +26,11 @@ add_executable(kallisto_test tests/test_main.cpp)
 target_link_libraries(kallisto_test kallisto_lib)
 
 # Add test command
-add_test(NAME CoreTests COMMAND kallisto_test)
+
+# Benchmark Tools
+add_executable(bench_p99 tests/bench_p99.cpp)
+target_link_libraries(bench_p99 kallisto_lib)
+
+add_executable(bench_dos tests/bench_dos.cpp)
+target_link_libraries(bench_dos kallisto_lib)
+
