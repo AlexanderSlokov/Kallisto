@@ -21,17 +21,18 @@
 // PART 1: WEAK HASH IMPLEMENTATION (SIMULATED)
 // ============================================
 
-// A "Weak Hash" function designed to cause collisions.
-// It only returns the length of the string, 
-// meaning all strings of same length collide.
+// A "Weak Hash" function that only looks at the first 8 bytes.
+// This simulates a common vulnerability where hashing doesn't process the whole key.
 size_t bad_hash(const std::string& key) {
-    return key.length(); 
+    if (key.length() < 8) return key.length();
+    size_t hash_val = 0;
+    // Only hash the first 8 bytes
+    std::memcpy(&hash_val, key.data(), 8);
+    return hash_val;
 }
 
-// COPIED FROM src/cuckoo_table.cpp
-// Test "What if we didn't use SipHash?"
+// COPIED FROM src/cuckoo_table.cpp to test "What if we didn't use SipHash?"
 // We need a version of the table that uses the bad_hash function above.
-// We cannot modify the real class, so we mock it.
 class WeakCuckooTable {
 public:
     struct Bucket {
@@ -84,12 +85,15 @@ public:
 
 void run_flooding_test() {
     std::cout << "\n[TEST] 1. Hash Flooding Resilience (SipHash vs WeakHash)\n";
-    const int N = 5000; // WeakHash is VERY slow, 10000 is too much
+    const int N = 5000;
     std::vector<std::string> attack_keys;
     
-    // Generate colliding keys (All length 8 -> Same Hash in WeakTable)
+    // Generate colliding keys for the Prefix Hash (First 8 bytes same)
+    // Key format: "COLLISION_" + number
+    // All keys start with "COLLISION_", so they will ALL have the exact same hash.
+    std::string prefix = "COLLISION_"; // 10 chars, > 8 bytes.
     for(int i=0; i<N; ++i) {
-        attack_keys.push_back(std::to_string(10000000 + i)); 
+        attack_keys.push_back(prefix + std::to_string(i)); 
     }
 
     // A. WEAK SYSTEM
