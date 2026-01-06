@@ -1,0 +1,31 @@
+{
+  "name": "Kallisto C++ Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "twxs.cmake",
+        "ms-python.python",
+        "ms-vscode.test-adapter-converter",
+        "formulahendry.code-runner"
+      ],
+      "settings": {
+		"terminal.integrated.defaultProfile.linux": "bash",
+		"C_Cpp.default.compilerPath": "/usr/bin/g++",
+		"code-runner.runInTerminal": true,
+		"editor.tabSize": 8,
+		"editor.insertSpaces": false,
+		"editor.rulers": [80]
+      }
+    }	
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "g++ --version && cmake --version && git --version",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspaces,type=bind"
+  ]
+}
