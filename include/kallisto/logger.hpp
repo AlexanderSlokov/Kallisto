@@ -7,7 +7,7 @@
 
 namespace kallisto {
 
-enum class LogFormat { Standard };
+enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, NONE = 4 };
 
 struct LogConfig {
     std::string name;
@@ -19,28 +19,48 @@ struct LogConfig {
 };
 
 class Logger {
+    LogLevel currentLevel = LogLevel::INFO;
 public:
     static Logger& getInstance() {
         static Logger instance;
         return instance;
     }
-    void setup(const LogConfig& config) {}
+
+    void setup(const LogConfig& config) {
+        std::string lvl = config.logLevel;
+        // Simple case-insensitive parser
+        for (auto & c: lvl) c = tolower(c);
+        
+        if (lvl == "debug") currentLevel = LogLevel::DEBUG;
+        else if (lvl == "info") currentLevel = LogLevel::INFO;
+        else if (lvl == "warn") currentLevel = LogLevel::WARN;
+        else if (lvl == "error") currentLevel = LogLevel::ERROR;
+        else currentLevel = LogLevel::INFO; // Default
+    }
+
+    bool shouldLog(LogLevel level) const {
+        return level >= currentLevel;
+    }
 };
 
 inline void info(const std::string& msg) {
-    std::cout << "[INFO] " << msg << std::endl;
+    if (Logger::getInstance().shouldLog(LogLevel::INFO))
+        std::cout << "[INFO] " << msg << std::endl;
 }
 
 inline void error(const std::string& msg) {
-    std::cerr << "[ERROR] " << msg << std::endl;
+    if (Logger::getInstance().shouldLog(LogLevel::ERROR))
+        std::cerr << "[ERROR] " << msg << std::endl;
 }
 
 inline void debug(const std::string& msg) {
-    std::cout << "[DEBUG] " << msg << std::endl;
+    if (Logger::getInstance().shouldLog(LogLevel::DEBUG))
+        std::cout << "[DEBUG] " << msg << std::endl;
 }
 
 inline void warn(const std::string& msg) {
-    std::cout << "[WARN] " << msg << std::endl;
+    if (Logger::getInstance().shouldLog(LogLevel::WARN))
+        std::cout << "[WARN] " << msg << std::endl;
 }
 
 } // namespace kallisto
