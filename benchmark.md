@@ -46,7 +46,7 @@ Chúng tôi thực hiện đo lường trên chế độ tối ưu nhất để 
 
 ### 2.1 Performance Metrics
 
-| Metric | Batch Mode (Crazy Dog Optimized) |
+| Metric | Batch Mode |
 | :--- | :--- |
 | **Write RPS** | **~279,418 req/s** |
 | **Read RPS** | **~267,059 req/s** |
