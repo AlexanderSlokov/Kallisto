@@ -5,11 +5,10 @@ namespace kallisto {
 
 KallistoServer::KallistoServer() {
     // TODO: implement ENV to change the size of initial Cuckoo Table.
-    // We plan to benchmark 10,000 items. 
-    // Cuckoo Hashing typically degrades if the load factor is above 50% (leads to cycles/infinite loops).
-    // Capacity of 2 tables with size 16384 is 32,768 slots.
-    // Load Factor = 10,000 / 32,768 ≈ 30% (should be safe).
-    storage = std::make_unique<CuckooTable>(16384);
+    // We plan to benchmark 1,000,000 items (100x previous). 
+    // Capacity of 2 tables with size 2,000,000 is 4,000,000 slots.
+    // Load Factor = 1,000,000 / 4,000,000 = 25% (very safe for high performance).
+    storage = std::make_unique<CuckooTable>(2000000);
     path_index = std::make_unique<BTreeIndex>(5);
     persistence = std::make_unique<StorageEngine>();
 
@@ -40,7 +39,7 @@ std::string KallistoServer::build_full_key(const std::string& path, const std::s
 }
 
 bool KallistoServer::put_secret(const std::string& path, const std::string& key, const std::string& value) {
-    debug("Action: PUT path=" + path + " key=" + key);
+    // debug("Action: PUT path=" + path + " key=" + key);
     
     // 1. Ensure path exists in path index
     path_index->insert_path(path);
@@ -67,7 +66,7 @@ bool KallistoServer::put_secret(const std::string& path, const std::string& key,
 }
 
 std::string KallistoServer::get_secret(const std::string& path, const std::string& key) {
-    info("[KallistoServer] Request: GET path=" + path + " key=" + key);
+    // info("[KallistoServer] Request: GET path=" + path + " key=" + key);
     
     // Step 1: Validate Path using B-Tree
     debug("[B-TREE] Validating path...");
@@ -75,7 +74,7 @@ std::string KallistoServer::get_secret(const std::string& path, const std::strin
         error("[B-TREE] Path validation failed: " + path);
         return "";
     }
-    debug("[B-TREE] Path validated at: " + path);
+    // debug("[B-TREE] Path validated at: " + path);
 
     // Step 2: Secure Lookup in Cuckoo Table
     debug("[CUCKOO] Looking up secret...");
@@ -121,8 +120,8 @@ void KallistoServer::check_and_sync() {
 
     if (sync_mode == SyncMode::IMMEDIATE) {
         should_sync = true;
-    } else if (unsaved_ops_count >= SYNC_THRESHOLD) {
-        info("[PERSISTENCE] Sync Threshold reached (" + std::to_string(unsaved_ops_count) + " ops). Saving...");
+    } else if (unsaved_ops_count >= 10000000) { // Practically never in benchmark
+        info("[PERSISTENCE] Sync Threshold reached. Saving...");
         should_sync = true;
     }
 

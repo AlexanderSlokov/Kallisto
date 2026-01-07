@@ -78,7 +78,7 @@ void handle_del(std::stringstream& ss) {
 }
 
 void run_benchmark(int count) {
-    kallisto::info("--- Starting Benchmark (" + std::to_string(count) + " ops) ---");
+    std::cout << "--- Starting Benchmark (" + std::to_string(count) + " ops) ---\n";
     
     auto start = std::chrono::high_resolution_clock::now();
     

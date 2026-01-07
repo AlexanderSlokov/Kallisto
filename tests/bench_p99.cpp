@@ -33,8 +33,8 @@ int main() {
     std::cout << "=== Kallisto Benchmark: p99 Latency ===\n";
     
     // 1. Setup
-    const int ITEM_COUNT = 10000;
-    kallisto::CuckooTable table(16384); // Size optimized for 10k items (load factor ~30%)
+    const int ITEM_COUNT = 1000000;
+    kallisto::CuckooTable table(2000000); // 2M per table -> 4M total capacity (25% load)
     std::vector<std::string> keys;
     std::vector<std::string> values;
 

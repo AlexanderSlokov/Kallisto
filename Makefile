@@ -15,8 +15,8 @@ help:
 	@echo "  make test    - Run Unit Tests"
 	@echo "  make benchmark-strict - Run Benchmark (Strict Mode)"
 	@echo "  make benchmark-batch  - Run Benchmark (Fast/Batch Mode)"
-	@echo "  make bench-p99   - Run Latency Benchmark (p99)"
-	@echo "  make bench-dos   - Run Security Benchmark (DoS)"
+	@echo "  make benchmark-p99   - Run Latency Benchmark (p99)"
+	@echo "  make benchmark-dos   - Run Security Benchmark (DoS)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make logs        - View the server logs"
 
@@ -33,18 +33,18 @@ test: build
 	@./$(BUILD_DIR)/kallisto_test
 
 benchmark-strict: build
-	@echo "\n--- Running Benchmark (10,000 Ops - STRICT MODE) ---\n"
-	@echo "MODE STRICT\nBENCH 10000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+	@echo "\n--- Running Benchmark (1,000,000 Ops - STRICT MODE) ---\n"
+	@echo "MODE STRICT\nBENCH 1000000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 
 benchmark-batch: build
-	@echo "\n--- Running Benchmark (10,000 Ops - BATCH MODE) ---\n"
-	@echo "MODE BATCH\nBENCH 10000\nSAVE\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+	@echo "\n--- Running Benchmark (1,000,000 Ops - BATCH MODE) ---\n"
+	@echo "MODE BATCH\nBENCH 1000000\nSAVE\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 
-bench-p99: build
+benchmark-p99: build
 	@echo "\n--- Running Benchmark (Latency P99) ---\n"
 	@./$(BUILD_DIR)/bench_p99
 
-bench-dos: build
+benchmark-dos: build
 	@echo "\n--- Running Benchmark (Security DoS) ---\n"
 	@./$(BUILD_DIR)/bench_dos
 
