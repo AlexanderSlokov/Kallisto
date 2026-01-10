@@ -1,5 +1,11 @@
 # "RESEARCH AND IMPLEMENTATION OF A HIGH-PERFORMANCE SECRET MANAGEMENT SYSTEM USING SIPHASH, CUCKOO HASHING AND B-TREE INDEXING"
 
+# Disclaimer
+
+This project incorporates the use of open-source software under the Apache License 2.0. Full license details and attributions are available in the accompanying documentation (file LICENSE.md). The project also adheres to privacy regulations and ensures the confidentiality and integrity of the data used during the research.
+
+The contributions of third parties are acknowledged, and this project builds upon the foundational work provided by `hashicorp/vault`, `redis` and `envoyproxy/envoy`, with specific adaptations and extensions made to suit the research objectives. The reporter and the supervising faculty do not assume liability for any direct or indirect damages arising from the use of this project or its contents.
+
 # I. INTRODUCTION
 ## 1.1. Context
 In these modern days, information security is of utmost importance. In particular, managing secrets (like API keys, passwords, tokens, etc.) is one of the most critical requirements of a security system. However, encrypting and storing secrets securely does not mean that the system can serve a large number of applications - services that read and write a large number of secrets in real-time. Managing secrets can cause performance and security issues if not handled correctly. A classic example is when a Kubernetes cluster restarts, thousands of containers in hundreds of pods will be scheduled, spin-up, crash-loop-back-off, request secrets... at the same time. Each container needs to be served secrets to start then the instances of the secret management system will be frozen due to flooding.
