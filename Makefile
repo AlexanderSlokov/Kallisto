@@ -44,9 +44,14 @@ benchmark-p99: build
 	@echo "\n--- Running Benchmark (Latency P99) ---\n"
 	@./$(BUILD_DIR)/bench_p99
 
+
 benchmark-dos: build
 	@echo "\n--- Running Benchmark (Security DoS) ---\n"
 	@./$(BUILD_DIR)/bench_dos
+
+test-atomic: build
+	@echo "\n--- Running Atomic Stats & Thread Safety Test ---\n"
+	@./$(BUILD_DIR)/repro_crash
 
 clean:
 	@echo "Cleaning build artifacts..."
