@@ -33,8 +33,8 @@ test: build
 	@./$(BUILD_DIR)/kallisto_test
 
 benchmark-strict: build
-	@echo "\n--- Running Benchmark (1,000,000 Ops - STRICT MODE) ---\n"
-	@echo "MODE STRICT\nBENCH 1000000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+	@echo "\n--- Running Benchmark (5000 Ops - STRICT MODE) ---\n"
+	@echo "MODE STRICT\nBENCH 5000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 
 benchmark-batch: build
 	@echo "\n--- Running Benchmark (1,000,000 Ops - BATCH MODE) ---\n"

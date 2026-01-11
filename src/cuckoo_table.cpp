@@ -54,6 +54,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
             // Potential match, check full key
             if (storage[slot_idx].key == key) {
                 storage[slot_idx] = entry; // Update in place
+                storage[slot_idx].key = key; // Ensure key consistency
                 return true;
             }
         }
@@ -75,6 +76,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
              // Yes, when we move T1->T2, we carry the tag.
              if (table_2[idx2].slots[i].tag == tag && storage[slot_idx].key == key) {
                  storage[slot_idx] = entry; // Update
+                 storage[slot_idx].key = key; // Ensure key consistency
                  return true;
              }
         }
@@ -86,8 +88,11 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
         new_storage_idx = free_list.back();
         free_list.pop_back();
         storage[new_storage_idx] = entry;
+        storage[new_storage_idx].key = key;
     } else {
-        storage.push_back(entry);
+        SecretEntry e = entry;
+        e.key = key;
+        storage.push_back(e);
         new_storage_idx = static_cast<uint32_t>(storage.size() - 1);
         // Check for 32-bit overflow? (Unlikely unless > 4 billion items)
     }
