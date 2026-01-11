@@ -15,6 +15,7 @@ help:
 	@echo "  make test    - Run Unit Tests"
 	@echo "  make benchmark-strict - Run Benchmark (Strict Mode)"
 	@echo "  make benchmark-batch  - Run Benchmark (Fast/Batch Mode)"
+	@echo "  make benchmark-throughput - Run Throughput Benchmark (Cuckoo 8-slot + Mutex)"
 	@echo "  make benchmark-p99   - Run Latency Benchmark (p99)"
 	@echo "  make benchmark-dos   - Run Security Benchmark (DoS)"
 	@echo "  make clean       - Remove build artifacts"
@@ -44,6 +45,9 @@ benchmark-p99: build
 	@echo "\n--- Running Benchmark (Latency P99) ---\n"
 	@./$(BUILD_DIR)/bench_p99
 
+benchmark-throughput: build
+	@echo "\n--- Running Throughput Benchmark (New 8-slot Cuckoo + Mutex) ---\n"
+	@./$(BUILD_DIR)/bench_throughput
 
 benchmark-dos: build
 	@echo "\n--- Running Benchmark (Security DoS) ---\n"
