@@ -8,7 +8,7 @@ KallistoServer::KallistoServer() {
     // We plan to benchmark 1,000,000 items (100x previous). 
     // Capacity of 2 tables with size 2,000,000 is 4,000,000 slots.
     // Load Factor = 1,000,000 / 4,000,000 = 25% (very safe for high performance).
-    storage = std::make_unique<CuckooTable>(2000000);
+    storage = std::make_unique<CuckooTable>(2000000, 2000000);
     path_index = std::make_unique<BTreeIndex>(5);
     persistence = std::make_unique<StorageEngine>();
 

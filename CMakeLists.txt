@@ -31,6 +31,11 @@ target_link_libraries(kallisto_test kallisto_lib)
 add_executable(bench_p99 tests/bench_p99.cpp)
 target_link_libraries(bench_p99 kallisto_lib)
 
+
 add_executable(bench_dos tests/bench_dos.cpp)
 target_link_libraries(bench_dos kallisto_lib)
+
+# Verification Test
+add_executable(repro_crash tests/repro_crash.cpp)
+target_link_libraries(repro_crash kallisto_lib)
 

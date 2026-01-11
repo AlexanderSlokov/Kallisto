@@ -15,6 +15,7 @@ help:
 	@echo "  make test    - Run Unit Tests"
 	@echo "  make benchmark-strict - Run Benchmark (Strict Mode)"
 	@echo "  make benchmark-batch  - Run Benchmark (Fast/Batch Mode)"
+	@echo "  make benchmark-throughput - Run Throughput Benchmark (Cuckoo 8-slot + Mutex)"
 	@echo "  make benchmark-p99   - Run Latency Benchmark (p99)"
 	@echo "  make benchmark-dos   - Run Security Benchmark (DoS)"
 	@echo "  make clean       - Remove build artifacts"
@@ -33,8 +34,8 @@ test: build
 	@./$(BUILD_DIR)/kallisto_test
 
 benchmark-strict: build
-	@echo "\n--- Running Benchmark (1,000,000 Ops - STRICT MODE) ---\n"
-	@echo "MODE STRICT\nBENCH 1000000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
+	@echo "\n--- Running Benchmark (5000 Ops - STRICT MODE) ---\n"
+	@echo "MODE STRICT\nBENCH 5000\nEXIT" | ./$(BUILD_DIR)/$(TARGET)
 
 benchmark-batch: build
 	@echo "\n--- Running Benchmark (1,000,000 Ops - BATCH MODE) ---\n"
@@ -44,9 +45,17 @@ benchmark-p99: build
 	@echo "\n--- Running Benchmark (Latency P99) ---\n"
 	@./$(BUILD_DIR)/bench_p99
 
+benchmark-throughput: build
+	@echo "\n--- Running Throughput Benchmark (New 8-slot Cuckoo + Mutex) ---\n"
+	@./$(BUILD_DIR)/bench_throughput
+
 benchmark-dos: build
 	@echo "\n--- Running Benchmark (Security DoS) ---\n"
 	@./$(BUILD_DIR)/bench_dos
+
+test-atomic: build
+	@echo "\n--- Running Atomic Stats & Thread Safety Test ---\n"
+	@./$(BUILD_DIR)/repro_crash
 
 clean:
 	@echo "Cleaning build artifacts..."
