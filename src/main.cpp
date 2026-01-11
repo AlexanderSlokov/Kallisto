@@ -80,17 +80,24 @@ void handle_del(std::stringstream& ss) {
 void run_benchmark(int count) {
     std::cout << "--- Starting Benchmark (" + std::to_string(count) + " ops) ---\n";
     
+    // 0. Pre-generate Data (Exclude string gen from benchmark time)
+    std::cout << "[BENCH] Pre-generating data...\n";
+    std::vector<std::string> paths, keys, vals;
+    paths.reserve(count);
+    keys.reserve(count);
+    vals.reserve(count);
+
+    for (int i = 0; i < count; ++i) {
+        paths.push_back("/bench/p" + std::to_string(i % 10));
+        keys.push_back("k" + std::to_string(i));
+        vals.push_back("v" + std::to_string(i));
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
     
     // 1. Write Phase
-    // Why sequential paths? To test B-Tree split logic heavily.
-    // Why random keys? To test SipHash distribution.
     for (int i = 0; i < count; ++i) {
-        // Use a few fixed paths to simulate real grouping
-        std::string path = "/bench/p" + std::to_string(i % 10); 
-        std::string key = "k" + std::to_string(i);
-        std::string val = "v" + std::to_string(i);
-        server->put_secret(path, key, val);
+        server->put_secret(paths[i], keys[i], vals[i]);
     }
     
     auto mid = std::chrono::high_resolution_clock::now();
@@ -98,9 +105,7 @@ void run_benchmark(int count) {
     // 2. Read Phase (Hot path)
     int hits = 0;
     for (int i = 0; i < count; ++i) {
-        std::string path = "/bench/p" + std::to_string(i % 10); 
-        std::string key = "k" + std::to_string(i);
-        std::string val = server->get_secret(path, key);
+        std::string val = server->get_secret(paths[i], keys[i]);
         if (!val.empty()) hits++;
     }
 
