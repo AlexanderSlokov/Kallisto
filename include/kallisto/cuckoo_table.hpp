@@ -12,9 +12,10 @@ namespace kallisto {
 class CuckooTable {
 public:
     /**
-     * @param size The capacity of each of the two tables.
+     * @param size The capacity of each of the two tables (number of buckets).
+     * @param initial_capacity The initial capacity to reserve for the secret storage pool.
      */
-    CuckooTable(size_t size = 1024);
+    CuckooTable(size_t size = 1024, size_t initial_capacity = 1024);
     
     /**
      * Inserts a secret entry into the cuckoo table.
@@ -41,20 +42,42 @@ public:
     bool remove(const std::string& key);
 
 private:
-    struct Bucket {
-        bool occupied = false;
-        std::string key;
-        SecretEntry entry;
+    struct alignas(64) Bucket {
+        struct Slot {
+            uint32_t tag;   // Fingerprint (High bits of hash)
+            uint32_t index; // Index into storage vector (0xFFFFFFFF = empty)
+        } slots[8];
     };
+
+    // Constants
+    static constexpr uint32_t INVALID_INDEX = 0xFFFFFFFF;
+    static constexpr int BUCKETS_PER_CACHE_LINE = 1; // 64 bytes / 64 bytes
+    static constexpr int SLOTS_PER_BUCKET = 8;
 
     std::vector<Bucket> table_1;
     std::vector<Bucket> table_2;
 
-    size_t capacity;
-    const int max_displacements = 100;
+    // Storage Pool (Arena)
+    // Concept: Instead of scattering SecretEntry objects in heap (via pointers),
+    // we store them contiguously in a vector. Buckets hold 32-bit indices to this vector.
+    std::vector<SecretEntry> storage;
+    
+    // Memory Management
+    std::vector<uint32_t> free_list; // Stack (LIFO) for recycled indices
+    uint32_t next_free_index = 0;    // High-water mark for new allocations
 
-    size_t hash_1(const std::string& key) const;
-    size_t hash_2(const std::string& key) const;
+    size_t capacity; // Number of buckets per table
+    const int max_displacements = 500; // Increased due to higher load factor capability
+
+    // Hash helpers return full 64-bit for Tag extraction
+    uint64_t hash_1_full(const std::string& key) const;
+    uint64_t hash_2_full(const std::string& key) const;
+    
+    // Tag generation: Extract high 32-bits from hash
+    static inline uint32_t get_tag(uint64_t method) {
+        uint32_t tag = static_cast<uint32_t>(method >> 32);
+        return tag == 0 ? 1 : tag; // Tag 0 reserved? No, but let's just use raw bits.
+    }
     
     void rehash();
 };
