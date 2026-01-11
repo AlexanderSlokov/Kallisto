@@ -552,9 +552,9 @@ We perform measurement on 2 configurations Sync to clarify the trade-off between
 
 | Metric | Strict Mode (Safe) | Batch Mode (Fast) | Improvement |
 | :--- | :--- | :--- | :--- |
-| **Write RPS** | ~1,572 req/s | **~17,564 req/s** | **~11.1x** |
-| **Read RPS** | ~5,654 req/s | **~6,394 req/s*** | ~1.1x |
-| **Total Time** | ~12.3s | **~2.1s** | up to 6x |
+| **Write RPS** | ~1,572 req/s | **~223,158 req/s** | **~141x** |
+| **Read RPS** | ~5,654 req/s | **~359,379 req/s*** | ~63x |
+| **Total Time** | ~12.3s | **~4.48s** (Including pre-gen) | up to 3x |
 
 *(Note: Read RPS slightly higher at "Batch Mode" because CPU is not interrupted by I/O tasks)*
 
@@ -577,17 +577,18 @@ Hits      : 10000/10000
 - **Batch Mode**: Write operations reach ~17.5k. This is the actual speed of **SipHash + Cuckoo Insert**.
 
 ```bash
+```bash
 [INFO] [KallistoServer] Request: GET path=/bench/p9 key=k9999
 [DEBUG] [B-TREE] Validating path...
 [DEBUG] [B-TREE] Path validated at: /bench/p9
 [DEBUG] [CUCKOO] Looking up secret...
 [INFO] [CUCKOO] HIT! Value retrieved.
-Write Time: 0.5057s | RPS: 19773.9201
-Read Time : 1.8195s | RPS: 5495.9840
-Hits      : 10000/10000
-> [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
+Write Time: 4.4811s | RPS: 223158.4057
+Read Time : 2.7826s | RPS: 359379.4067
+Hits      : 1000000/1000000
+> [INFO] Snapshot saved to /data/kallisto/kallisto.db (1000000 entries)
 OK (Saved to disk)
-> [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
+```
 ```
 
 ## 7.3. Theoretical expectations vs. Actual results
@@ -622,7 +623,7 @@ The "Kallisto" project successfully demonstrates that a hybrid data structure ap
 
 ### 8.1.1. Pros
 
-High Performance: Achieved ~17,000 Write RPS (Batch Mode) and ~6,400 Read RPS, significantly outperforming traditional file-based storage systems and potentially rivaling Redis in specific workloads.
+High Performance: Achieved ~223,000 Write RPS (Batch Mode) and ~359,000 Read RPS, significantly outperforming traditional file-based storage systems and potentially rivaling Redis in specific workloads.
 
 Predictable Latency: The implementation of Cuckoo Hashing guarantees O(1) worst-case lookup time, eliminating the "tail latency" problem found in Chaining or Linear Probing implementations.
 
