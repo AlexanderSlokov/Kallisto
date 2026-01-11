@@ -5,7 +5,8 @@
 ### BATCH mode: "Identity & Secret Proxy" hoặc "High-speed Transit Engine" (làm việc trên RAM là chính)
 
 #### 1. Dynamic Session Keys (Khóa phiên động)
-Đây là ứng dụng phổ biến nhất. Các khóa dùng để mã hóa cookie, session người dùng hoặc các phiên làm việc giữa các microservices. Nếu server sập và RAM mất trắng, người dùng chỉ việc... đăng nhập lại.
+
+Đây là ứng dụng phổ biến nhất. Các khóa dùng để mã hóa cookie, session người dùng hoặc các phiên làm việc giữa các microservices. Nếu server sập và RAM mất trắng, người dùng chỉ việc đăng nhập lại.
 
 Lợi ích: Tốc độ kiểm tra session cực nhanh giúp gánh được lượng traffic khổng lồ mà không làm nghẽn DB chính.
 
@@ -16,7 +17,8 @@ Trong Vault có một tính năng gọi là "Response Wrapping". Nó tạo ra m�
 Lợi ích: Bảo vệ bí mật gốc trong khi vẫn giao tiếp cực nhanh.
 
 #### 3. Dynamic Database Credentials (Lease-based)
-Dạng bí mật mà server của bạn tự tạo ra cho ứng dụng để truy cập DB (với quyền hạn bị giới hạn). Nếu RAM bay màu, các ứng dụng khách sẽ nhận lỗi 401 Unauthorized. Theo thiết kế của các hệ thống Cloud-native, ứng dụng sẽ tự động gọi lại API để xin cấp "Identity" mới.
+
+Dạng bí mật mà `Kallisto` tự tạo ra cho ứng dụng để truy cập DB (với quyền hạn bị giới hạn). Nếu RAM bị reset, các ứng dụng khách sẽ nhận lỗi "401 Unauthorized". Theo thiết kế của các hệ thống Cloud-native, ứng dụng sẽ tự động gọi lại API để xin cấp "Identity" mới.
 
 Lợi ích: Bạn có thể xoay vòng (rotate) mật khẩu DB liên tục (mỗi 5 phút) mà không lo bị nghẽn Disk I/O.
 
@@ -34,13 +36,13 @@ Lợi ích: Việc duyệt B-tree trên RAM để quyết định "Ai được l
 
 #### 6. Cách triển khai kiến trúc
 
-`Kallisto` đứng trước Master Vault. Khi có request, nếu `Cuckoo Table` không có (Miss), nó mới "lết" sang Master Vault để lấy về rồi nhét vào RAM. Sau đó, mọi request tiếp theo sẽ được hưởng tốc độ gấp nhiều lần Vault.
+`Kallisto` đứng trước `Vault` Master Node và các replica của nó. Khi có request, nếu `Cuckoo Table` không có (Miss), nó mới "lết" sang Master Vault để lấy về rồi nhét vào RAM. Sau đó, mọi request tiếp theo sẽ được hưởng tốc độ gấp nhiều lần Vault.
 
 # 🚀 FUTURE ROADMAP
 
-Phần này dành cho "Later Works" (sau đồ án), tập trung vào các kỹ thuật Software Architecture nâng cao để biến Kallisto thành một Production-Grade System.
+Phần này dành cho "Later Works" sau đồ án, tập trung vào các kỹ thuật Software Architecture nâng cao để biến Kallisto thành một Production-Grade System.
 
-## 1. Security Layer (Defense in Depth)
+## 1. Security Layer
 
 ### Encryption-at-Rest (Mã hóa lưu trữ)
 
@@ -50,7 +52,7 @@ Phần này dành cho "Later Works" (sau đồ án), tập trung vào các kỹ 
 
 **Mục tiêu**: Key Management Life-cycle (Rotation, Unseal).
 
-### Secure Memory Allocato (Bảo vệ RAM)
+### Secure Memory Allocator (Bảo vệ RAM)
 
 **Vấn đề**: Memory Dump hoặc Swap file có thể làm lộ secret.
 
@@ -58,7 +60,7 @@ Phần này dành cho "Later Works" (sau đồ án), tập trung vào các kỹ 
 
 **Bài học**: OS Memory Management & Low-level Systems Programming.
 
-### Access Control List (Phân quyền):
+### Access Control List (Phân quyền)
 
 *Vấn đề*: Ai có quyền truy cập CLI cũng đọc được mọi thứ.
 
@@ -66,13 +68,13 @@ Phần này dành cho "Later Works" (sau đồ án), tập trung vào các kỹ 
 
 *Bài học*: RBAC Design Patterns.
 
-## 2. Scalability & Reliability (Mở rộng & Tin cậy)
+## 2. Scalability & Reliability
 
 ### Cải tiến Cuckoo Table thành Blocked Cuckoo
 
 Với kiến thức hệ thống hiện đại và sức mạnh của C++, hoàn toàn có thể khiến Cuckoo Table trở nên tiết kiệm mà vẫn giữ được tốc độ cao. Bí mật nằm ở việc thay đổi cấu trúc từ "1 slot mỗi bucket" sang "nhiều slot mỗi bucket" (thường là 4):
 
-1. **Giảm tối đa hiện tượng "loop kick":** Cuckoo truyền thống (1 slot/bucket) khi nạp đầy đến khoảng 50%, xác suất bị "đá" nhau vòng quanh tăng vọt. Để tránh treo máy, bạn buộc phải Resize bảng. Đó là lý do vì sao bạn cần RAM gấp đôi dữ liệu. Với cấu trúc `Blocked Cuckoo` (4 slots/bucket), nhờ có 4 sự lựa chọn trong cùng một chỗ, xác suất tìm được ít nhất 1 chỗ trống tăng lên cực lớn. Khoa học đã chứng minh: Với 4 slots, bạn có thể nạp đầy đến 95% dung lượng bảng trước khi gặp vấn đề về "đá" nhau.
+1. **Giảm tối đa hiện tượng "loop kick":** Cuckoo truyền thống (1 slot/bucket) khi nạp đầy đến khoảng 50%, xác suất bị "đá" nhau vòng quanh tăng vọt rồi lại phải resize bảng. Đó là lý do vì sao bạn cần RAM gấp đôi dữ liệu. Với cấu trúc `Blocked Cuckoo` (4 slots/bucket), nhờ có 4 sự lựa chọn trong cùng một chỗ, xác suất tìm được ít nhất 1 chỗ trống tăng lên cực lớn. Khoa học đã chứng minh: Với 4 slots, bạn có thể nạp đầy đến 95% dung lượng bảng trước khi gặp vấn đề về "đá" nhau.
 
 2. **"Buff" thêm sức mạnh từ CPU Cache:** Một Cache Line của CPU thường là 64 bytes. Nếu bạn thiết kế một Bucket gồm 4 slots (mỗi slot gồm 4 bytes Tag + 12 bytes Pointer = 16 bytes), thì cả cái Bucket đó nặng đúng 64 bytes. Khi CPU nạp 1 bucket vào để kiểm tra slot đầu tiên, nó sẽ nạp luôn cả 3 slot còn lại vào Cache cùng một lúc (vì tụi nó nằm sát nhau). Việc check 4 slots lúc này nhanh gần như check 1 slot, nhưng hiệu quả sử dụng RAM thì tăng gấp đôi.
 
