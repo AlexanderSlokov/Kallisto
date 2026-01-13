@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <atomic>
 #include <mutex>
+#include <shared_mutex>
 #include "kallisto/secret_entry.hpp"
 #include "kallisto/siphash.hpp"
 
@@ -86,7 +87,7 @@ private:
     uint32_t next_free_index = 0;    // High-water mark for new allocations
 
     // Concurrency & Stats
-    mutable std::mutex write_mutex_; // Protects writers (insert/remove) interaction
+    mutable std::shared_mutex rw_lock_; // R/W Lock: Multiple readers (lookup), Single writer (insert/remove)
     
     // Atomic Shadow Stats (Envoy-style non-blocking reads)
     std::atomic<size_t> shadow_storage_capacity_{0};
