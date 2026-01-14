@@ -36,6 +36,8 @@ uint64_t SipHash::hash(
 	// - XOR 'message_word' vào state3 (Nạp dữ liệu vào trạng thái)
 	// - Chạy 2 vòng sipround (Xáo trộn)
 	// - XOR 'message_word' vào state0 (Khóa dữ liệu lại)
+	// Cú pháp chuẩn của C++ khi khởi tạo biến iterator bên ngoài vòng lặp.
+	// Cấu trúc vòng for là: for (INIT; CONDITION; UPDATE). Ở đây INIT bị bỏ trống (chỉ còn dấu ;) vì biến data_ptr đã được khởi tạo.
 	for (; data_ptr < full_blocks_end; data_ptr += 8) {
 		uint64_t message_word;
 		std::memcpy(&message_word, data_ptr, 8);
