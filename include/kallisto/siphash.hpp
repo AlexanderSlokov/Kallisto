@@ -39,12 +39,12 @@ private:
 		return (x << b) | (x >> (64 - b));
 	}
 
-	static inline void sipround(uint64_t& v0, uint64_t& v1, 
-				    uint64_t& v2, uint64_t& v3) {
-		v0 += v1; v1 = rotl(v1, 13); v1 ^= v0; v0 = rotl(v0, 32);
-		v2 += v3; v3 = rotl(v3, 16); v3 ^= v2;
-		v0 += v3; v3 = rotl(v3, 21); v3 ^= v0;
-		v2 += v1; v1 = rotl(v1, 17); v1 ^= v2; v2 = rotl(v2, 32);
+	static inline void sipround(uint64_t& state0, uint64_t& state1, 
+				    uint64_t& state2, uint64_t& state3) {
+		state0 += state1; state1 = rotl(state1, 13); state1 ^= state0; state0 = rotl(state0, 32);
+		state2 += state3; state3 = rotl(state3, 16); state3 ^= state2;
+		state0 += state3; state3 = rotl(state3, 21); state3 ^= state0;
+		state2 += state1; state1 = rotl(state1, 17); state1 ^= state2; state2 = rotl(state2, 32);
 	}
 };
 
