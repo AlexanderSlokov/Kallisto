@@ -20,7 +20,7 @@ uint64_t SipHash::hash(
 	// https://cr.yp.to/siphash/siphash-20120918.pdf
 	// Mục đích: phá vỡ tính đối xứng ban đầu.
 	uint64_t state0 = 0x736f6d6570736575ULL ^ first_part; // "somepseu"
-	uint64_t state1 = 0x646f72616e646f6dULL ^ second_part; // "dorandom"
+	uint64_t state1 = 0x646f72616e646f6dULL ^ second_part; // "dorandom"	
 	uint64_t state2 = 0x6c7967656e657261ULL ^ first_part; // "lygenera"
 	uint64_t state3 = 0x7465646279746573ULL ^ second_part; // "tedbytes"
 
