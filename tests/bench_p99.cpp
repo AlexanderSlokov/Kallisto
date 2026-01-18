@@ -1,7 +1,8 @@
 /*
  * Source: tests/bench_p99.cpp
- * Purpose: Measure p99 Latency of Kallisto Cuckoo Table
+ * Purpose: Measure p99 Latency of Kallisto ShardedCuckooTable (64 shards)
  * Origin: Built from scratch for Report Requirement
+ * Updated: 2025-01-18 - ShardedCuckooTable integration
  */
 
 #include <iostream>
@@ -11,7 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
-#include "kallisto/cuckoo_table.hpp"
+#include "kallisto/sharded_cuckoo_table.hpp"  // Updated for sharding
 #include "kallisto/siphash.hpp"
 
 // Utility to generate random string
@@ -30,11 +31,12 @@ std::string random_string(size_t length) {
 }
 
 int main() {
-    std::cout << "=== Kallisto Benchmark: p99 Latency ===\n";
+    std::cout << "=== Kallisto Benchmark: p99 Latency (ShardedCuckooTable) ===\n";
+    std::cout << "Shards: 64\n\n";
     
     // 1. Setup
     const int ITEM_COUNT = 1000000;
-    kallisto::CuckooTable table(2000000); // 2M per table -> 4M total capacity (25% load)
+    kallisto::ShardedCuckooTable table(2000000);  // 2M capacity across 64 shards
     std::vector<std::string> keys;
     std::vector<std::string> values;
 

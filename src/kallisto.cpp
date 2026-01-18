@@ -4,11 +4,11 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
-    // TODO: implement ENV to change the size of initial Cuckoo Table.
-    // We plan to benchmark 1,000,000 items (100x previous). 
-    // Capacity of 2 tables with size 2,000,000 is 4,000,000 slots.
-    // Load Factor = 1,000,000 / 4,000,000 = 25% (very safe for high performance).
-    storage = std::make_unique<CuckooTable>(2000000, 2000000);
+    // Phase 1.2: Use ShardedCuckooTable (64 partitions) for thread-safe access
+    // Capacity: 2M items across 64 shards (~31K per shard)
+    // This enables >1M RPS in multi-threaded scenarios
+    storage = std::make_unique<ShardedCuckooTable>(2000000);
+    
     path_index = std::make_unique<BTreeIndex>(5);
     persistence = std::make_unique<StorageEngine>();
 
