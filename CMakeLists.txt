@@ -18,6 +18,8 @@ add_library(kallisto_lib
     src/event/dispatcher_impl.cpp
     src/event/worker_impl.cpp
     src/thread_local/thread_local_impl.cpp
+    # Sharded storage (Phase 1.2)
+    src/sharded_cuckoo_table.cpp
 )
 
 # Link pthread for threading support
