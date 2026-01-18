@@ -42,6 +42,63 @@ Lợi ích: Việc duyệt B-tree trên RAM để quyết định "Ai được l
 
 Phần này dành cho "Later Works" sau đồ án, tập trung vào các kỹ thuật Software Architecture nâng cao để biến Kallisto thành một Production-Grade System.
 
+---
+
+## ✅ Phase 1.1: Threading Infrastructure - COMPLETE (2025-01-18)
+
+Đã triển khai thành công mô hình multi-threading lấy cảm hứng từ Envoy:
+
+- `Dispatcher` - epoll-based event loop với timerfd/eventfd
+- `Worker` - Thread wrapper với request counting
+- `WorkerPool` - Quản lý N workers (auto-detect CPU cores)
+- `Thread-Local Storage` - Zero-lock per-thread data access
+
+**Files mới:**
+- `include/kallisto/event/dispatcher.hpp`
+- `include/kallisto/event/worker.hpp`
+- `include/kallisto/thread_local/thread_local.hpp`
+- `src/event/dispatcher_impl.cpp`
+- `src/event/worker_impl.cpp`
+- `src/thread_local/thread_local_impl.cpp`
+- `tests/test_threading.cpp`
+- `tests/bench_multithread.cpp`
+
+**Test results:** `make test-threading` - 12/12 passed ✅
+
+---
+
+## 🔴 KNOWN ISSUE: CuckooTable Lock Contention
+
+### Vấn đề
+
+Multi-threaded benchmark (3 workers) cho thấy performance **giảm** khi chạy parallel:
+
+| Metric | Single-thread | Multi-thread (3w) | Speedup |
+|--------|---------------|-------------------|---------|
+| Write RPS | 246,100 | 143,069 | **0.58x** ⬇️ |
+| Read RPS | 342,051 | 143,069 | **0.42x** ⬇️ |
+
+### Nguyên nhân
+
+3 workers đang **xài chung 1 CuckooTable** với `shared_mutex`:
+- Mỗi lần insert/lookup, workers phải xếp hàng chờ
+- Thời gian chờ lock > thời gian xử lý
+- Cache invalidation giữa các CPU cores
+
+### Giải pháp đề xuất
+
+1. **Sharding** - Chia CuckooTable thành N partitions, mỗi worker sở hữu 1 partition
+2. **Thread-Local Caching** - Mỗi worker có hot-cache riêng, sync định kỳ
+3. **Lock-free reads** - Sử dụng RCU (Read-Copy-Update) pattern cho lookups
+
+### Khi nào vấn đề này KHÔNG ảnh hưởng?
+
+- gRPC server với nhiều clients: Mỗi connection gắn với 1 worker, I/O wait che lấp contention
+- RocksDB async writes: Persistence thread không block workers
+- Stats aggregation: TLS stats, merge định kỳ
+
+---
+
 ## 1. Security Layer
 
 ### Encryption-at-Rest (Mã hóa lưu trữ)
