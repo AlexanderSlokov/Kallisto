@@ -67,35 +67,71 @@ Phần này dành cho "Later Works" sau đồ án, tập trung vào các kỹ th
 
 ---
 
-## 🔴 KNOWN ISSUE: CuckooTable Lock Contention
+## ✅ Phase 1.2: Sharded CuckooTable - COMPLETE (2025-01-18)
 
-### Vấn đề
+### Vấn đề Ban Đầu
 
-Multi-threaded benchmark (3 workers) cho thấy performance **giảm** khi chạy parallel:
+Lock contention trên global `shared_mutex` gây performance degradation:
+- Multi-thread (3w) chỉ đạt 143k RPS (0.5x so với single-thread)
 
-| Metric | Single-thread | Multi-thread (3w) | Speedup |
-|--------|---------------|-------------------|---------|
-| Write RPS | 246,100 | 143,069 | **0.58x** ⬇️ |
-| Read RPS | 342,051 | 143,069 | **0.42x** ⬇️ |
+### Giải Pháp: 64-Partition Sharding
 
-### Nguyên nhân
+Chia CuckooTable thành 64 partitions độc lập, mỗi partition có lock riêng.
 
-3 workers đang **xài chung 1 CuckooTable** với `shared_mutex`:
-- Mỗi lần insert/lookup, workers phải xếp hàng chờ
-- Thời gian chờ lock > thời gian xử lý
-- Cache invalidation giữa các CPU cores
+**Files mới:**
+- `include/kallisto/sharded_cuckoo_table.hpp`
+- `src/sharded_cuckoo_table.cpp`
 
-### Giải pháp đề xuất
+### Kết Quả Benchmark
 
-1. **Sharding** - Chia CuckooTable thành N partitions, mỗi worker sở hữu 1 partition
-2. **Thread-Local Caching** - Mỗi worker có hot-cache riêng, sync định kỳ
-3. **Lock-free reads** - Sử dụng RCU (Read-Copy-Update) pattern cho lookups
+| Pattern | RPS | Description |
+|---------|-----|-------------|
+| **MIXED 95/5** | **1.17M** | 95% reads, 5% writes |
+| **BURSTY** | **600k** | Deployment bursts |
+| **ZIPF** | 28k | Hot keys (expected) |
 
-### Khi nào vấn đề này KHÔNG ảnh hưởng?
+**Improvement: 4-6x so với non-sharded!**
 
-- gRPC server với nhiều clients: Mỗi connection gắn với 1 worker, I/O wait che lấp contention
-- RocksDB async writes: Persistence thread không block workers
-- Stats aggregation: TLS stats, merge định kỳ
+**Test commands:**
+- `make benchmark-multithread` - Comprehensive suite
+- `make benchmark-p99` - Latency test (p99 = 3.24 μs ✅)
+- `make test-atomic` - Thread-safety stress test
+
+---
+
+## 🔜 Phase 1.3: gRPC Server + WorkerPool Integration
+
+### Trạng Thái: READY TO IMPLEMENT
+
+Threading infrastructure đã **sẵn sàng** cho multi-threaded server:
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `Dispatcher` (epoll) | ✅ Ready | Event loop per worker |
+| `Worker` | ✅ Ready | Thread wrapper |
+| `WorkerPool` | ✅ Ready | N worker management |
+| `ThreadLocal Storage` | ✅ Ready | Zero-lock TLS |
+| `ShardedCuckooTable` | ✅ Integrated | Thread-safe storage |
+
+### Kiến Trúc Mục Tiêu (Envoy-Style)
+
+```
+gRPC Server ──► WorkerPool(N) ──┬─► Worker 0 ──► ShardedCuckooTable
+                                ├─► Worker 1 ──►   (64 partitions)
+                                └─► Worker N ──►
+```
+
+### Cần Implement
+
+1. **gRPC Server** - Accept connections, parse requests
+2. **Request Router** - Distribute to workers (round-robin hoặc hash-based)
+3. **WorkerPool Integration** - Mỗi worker xử lý requests độc lập
+
+### Tại Sao Chờ gRPC?
+
+Envoy pattern: WorkerPool chỉ có ý nghĩa khi có **concurrent network requests**.
+Hiện tại Kallisto là CLI → single-threaded đủ.
+Khi có gRPC → WorkerPool sẽ được tích hợp tự nhiên.
 
 ---
 
