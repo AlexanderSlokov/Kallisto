@@ -51,3 +51,7 @@ target_link_libraries(repro_crash kallisto_lib)
 # Threading Infrastructure Test
 add_executable(test_threading tests/test_threading.cpp)
 target_link_libraries(test_threading kallisto_lib)
+
+# Multi-threaded Benchmark
+add_executable(bench_multithread tests/bench_multithread.cpp)
+target_link_libraries(bench_multithread kallisto_lib)
