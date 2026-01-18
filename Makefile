@@ -57,6 +57,14 @@ test-atomic: build
 	@echo "\n--- Running Atomic Stats & Thread Safety Test ---\n"
 	@./$(BUILD_DIR)/repro_crash
 
+benchmark-multithread: build
+	@echo "\n--- Running Multi-threaded Benchmark (3 workers) ---\n"
+	@./$(BUILD_DIR)/bench_multithread
+
+test-threading: build
+	@echo "\n--- Running Threading Unit Tests ---\n"
+	@./$(BUILD_DIR)/test_threading
+
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
