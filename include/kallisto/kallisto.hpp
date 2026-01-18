@@ -5,7 +5,7 @@
 #include <chrono>
 #include <memory>
 #include "kallisto/secret_entry.hpp"
-#include "kallisto/cuckoo_table.hpp"
+#include "kallisto/sharded_cuckoo_table.hpp"  // Sharded for thread-safety (Phase 1.2)
 #include "kallisto/btree_index.hpp"
 #include "kallisto/storage_engine.hpp"
 
@@ -19,14 +19,14 @@ public:
     /**
      * Stores a secret at a specific path.
      * 1. Validates path in B-Tree.
-     * 2. Inserts/Updates entry in Cuckoo Table.
+     * 2. Inserts/Updates entry in Sharded Cuckoo Table (thread-safe).
      */
     bool put_secret(const std::string& path, const std::string& key, const std::string& value);
 
     /**
      * Retrieves a secret.
      * 1. Validates path in B-Tree.
-     * 2. O(1) Lookup in Cuckoo Table.
+     * 2. O(1) Lookup in Sharded Cuckoo Table (thread-safe).
      */
     std::string get_secret(const std::string& path, const std::string& key);
 
@@ -49,7 +49,8 @@ public:
     void force_save();
 
 private:
-    std::unique_ptr<CuckooTable> storage;
+    // Thread-safe sharded storage (64 partitions)
+    std::unique_ptr<ShardedCuckooTable> storage;
     std::unique_ptr<BTreeIndex> path_index;
     std::unique_ptr<StorageEngine> persistence;
 
