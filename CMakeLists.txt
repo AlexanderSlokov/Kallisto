@@ -14,7 +14,14 @@ add_library(kallisto_lib
     src/storage_engine.cpp
     src/kallisto.cpp
     helpers/logger.cpp
+    # Threading infrastructure (Phase 1.1)
+    src/event/dispatcher_impl.cpp
+    src/event/worker_impl.cpp
+    src/thread_local/thread_local_impl.cpp
 )
+
+# Link pthread for threading support
+target_link_libraries(kallisto_lib PRIVATE pthread)
 
 # Main Executable
 add_executable(kallisto src/main.cpp)
@@ -39,3 +46,6 @@ target_link_libraries(bench_dos kallisto_lib)
 add_executable(repro_crash tests/repro_crash.cpp)
 target_link_libraries(repro_crash kallisto_lib)
 
+# Threading Infrastructure Test
+add_executable(test_threading tests/test_threading.cpp)
+target_link_libraries(test_threading kallisto_lib)
