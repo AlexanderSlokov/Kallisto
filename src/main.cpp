@@ -20,6 +20,7 @@ void print_help() {
     std::cout << "  BENCH <count>              Run performance benchmark\n";
     std::cout << "  SAVE                       Force sync to disk\n";
     std::cout << "  MODE <STRICT|BATCH>        Set persistence mode\n";
+    std::cout << "  LOGLEVEL <LEVEL>           Set log level (TRACE|DEBUG|INFO|WARN|ERROR|NONE)\n";
     std::cout << "  EXIT                       Quit\n";
 }
 
@@ -80,6 +81,10 @@ void handle_del(std::stringstream& ss) {
 void run_benchmark(int count) {
     std::cout << "--- Starting Benchmark (" + std::to_string(count) + " ops) ---\n";
     
+    // Disable logging during benchmark for accurate measurement
+    auto prev_level = kallisto::Logger::getInstance().getLevel();
+    kallisto::Logger::getInstance().setLevel(kallisto::LogLevel::NONE);
+    
     // 0. Pre-generate Data (Exclude string gen from benchmark time)
     std::cout << "[BENCH] Pre-generating data...\n";
     std::vector<std::string> paths, keys, vals;
@@ -93,6 +98,7 @@ void run_benchmark(int count) {
         vals.push_back("v" + std::to_string(i));
     }
 
+    std::cout << "[BENCH] Running (logs disabled for accuracy)...\n";
     auto start = std::chrono::high_resolution_clock::now();
     
     // 1. Write Phase
@@ -110,6 +116,9 @@ void run_benchmark(int count) {
     }
 
     auto end = std::chrono::high_resolution_clock::now();
+    
+    // Restore log level
+    kallisto::Logger::getInstance().setLevel(prev_level);
 
     // Stats Calculation
     std::chrono::duration<double> write_sec = mid - start;
@@ -159,6 +168,19 @@ void process_line(std::string line) {
             kallisto::warn("Usage: MODE <STRICT|BATCH>");
         }
     }
+    else if (cmd == "LOGLEVEL" || cmd == "LOG") {
+        std::string level_str;
+        ss >> level_str;
+        if (level_str.empty()) {
+            // Show current level
+            auto lvl = kallisto::Logger::getInstance().getLevel();
+            const char* names[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "NONE"};
+            std::cout << "Current log level: " << names[static_cast<int>(lvl)] << "\n";
+        } else {
+            kallisto::Logger::getInstance().setLevel(level_str);
+            std::cout << "OK (Log level set)\n";
+        }
+    }
     else if (cmd == "EXIT" || cmd == "QUIT") {
         exit(0);
     }
@@ -171,20 +193,16 @@ void process_line(std::string line) {
 }
 
 int main(int argc, char** argv) {
-    // Initialize Server
-    // Why standard logs? We want to see startup logs in the file/stderr 
-    // but keep stdout clean for CLI responses (GET values).
-    kallisto::LogConfig config("kallisto.server.log");
-    config.logFilePath = "logs/";
-    // Set to WARN to avoid spamming the CLI during benchmark, 
-    // unless DEBUG is needed.
-    config.logLevel = "warn"; 
-    kallisto::Logger::getInstance().setup(config);
+    // Initialize Logger
+    // Default to WARN to keep CLI clean. Use LOGLEVEL command to change at runtime.
+    // For max benchmark perf, compile with -DKALLISTO_LOG_LEVEL_NONE
+    kallisto::Logger::getInstance().setLevel(kallisto::LogLevel::WARN);
+    kallisto::Logger::getInstance().setThreadName("main");
 
     server = std::make_unique<kallisto::KallistoServer>();
 
     // Interactive Mode
-    kallisto::info("Kallisto Server Ready. Type HELP for commands.");
+    LOG_INFO("Kallisto Server Ready. Type HELP for commands.");
     
     std::string line;
     std::cout << "> ";
