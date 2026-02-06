@@ -12,7 +12,7 @@ StorageEngine::StorageEngine(const std::string& data_dir) : data_path(data_dir) 
         }
     } catch (const std::exception& e) {
         // Just log error. Code should be deterministic - if something wrong then fail, and don't try to fix the misconfiguration for user.
-        error("Failed to create data dir: " + data_path + ". Error: " + e.what());
+        LOG_ERROR("Failed to create data dir: " + data_path + ". Error: " + e.what());
     }
 }
 
@@ -38,7 +38,7 @@ bool StorageEngine::save_snapshot(const std::vector<SecretEntry>& secrets) {
     std::ofstream out(full_path, std::ios::binary | std::ios::trunc);
     
     if (!out.is_open()) {
-        error("Cannot open file for writing: " + full_path);
+        LOG_ERROR("Cannot open file for writing: " + full_path);
         return false;
     }
 
@@ -62,7 +62,7 @@ bool StorageEngine::save_snapshot(const std::vector<SecretEntry>& secrets) {
     }
 
     out.close();
-    info("Snapshot saved to " + full_path + " (" + std::to_string(count) + " entries)");
+    LOG_INFO("Snapshot saved to " + full_path + " (" + std::to_string(count) + " entries)");
     return true;
 }
 
@@ -71,13 +71,13 @@ std::vector<SecretEntry> StorageEngine::load_snapshot() {
     std::string full_path = data_path + "/" + snapshot_filename;
 
     if (!std::filesystem::exists(full_path)) {
-        warn("No snapshot found at " + full_path + ". Starting fresh.");
+        LOG_WARN("No snapshot found at " + full_path + ". Starting fresh.");
         return secrets; 
     }
 
     std::ifstream in(full_path, std::ios::binary);
     if (!in.is_open()) {
-        error("Cannot open file for reading: " + full_path);
+        LOG_ERROR("Cannot open file for reading: " + full_path);
         return secrets;
     }
 
@@ -85,13 +85,13 @@ std::vector<SecretEntry> StorageEngine::load_snapshot() {
     uint32_t magic, version;
     read_pod(in, magic);
     if (magic != MAGIC_NUMBER) {
-        error("Corrupted file: Invalid Magic Number.");
+        LOG_ERROR("Corrupted file: Invalid Magic Number.");
         return secrets;
     }
 
     read_pod(in, version);
     if (version != VERSION) {
-        error("Unsupported version: " + std::to_string(version));
+        LOG_ERROR("Unsupported version: " + std::to_string(version));
         return secrets;
     }
 
@@ -116,7 +116,7 @@ std::vector<SecretEntry> StorageEngine::load_snapshot() {
     }
 
     in.close();
-    info("Loaded " + std::to_string(secrets.size()) + " secrets from disk.");
+    LOG_INFO("Loaded " + std::to_string(secrets.size()) + " secrets from disk.");
     return secrets;
 }
 
