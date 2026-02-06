@@ -1,6 +1,6 @@
+# Dockerfile cập nhật
 FROM ubuntu:24.04
 
-# Cập nhật & cài các công cụ cần thiết
 RUN apt-get update && apt-get install -y \
     build-essential \
     clang \
@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     valgrind \
     wget \
+    curl \
+    procps \
     ca-certificates \
     libspdlog-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
