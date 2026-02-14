@@ -278,6 +278,15 @@ void GrpcHandler::pollCompletionQueue() {
 
 Minimal HTTP/1.1 parser cho Vault KV v2 API:
 
+> [!CAUTION]
+> **Strict Scope (Quorum Review):** Parser chỉ hỗ trợ `Content-Length` requests.
+> Reject ngay với `400 Bad Request` nếu gặp:
+> - `Transfer-Encoding: chunked`
+> - `Expect: 100-continue`
+> - Bất kỳ encoding nào ngoài `Content-Length` chuẩn
+>
+> Không cố support full HTTP spec. Header parse bằng string đơn giản, body parse bằng `simdjson`.
+
 ```cpp
 namespace kallisto::server {
 
@@ -369,47 +378,104 @@ int main(int argc, char** argv) {
 
 ---
 
-### Component 7: CMake Updates
+### Component 7: Build System (Production-Grade CMake + vcpkg)
+
+> [!IMPORTANT]
+> **3 điểm cải tiến từ review (Gemini 3):**
+> 1. **vcpkg Manifest Mode** — Lock version toàn bộ dependencies, tránh "Dependency Hell" giữa dev/CI
+> 2. **gRPC Reflection** — Cho phép `grpcurl localhost:8201 list` để debug API
+> 3. **Performance Flags** — `-O3 -march=native` để simdjson kích hoạt AVX2/AVX-512
+
+#### [NEW] [vcpkg.json](file:///workspaces/kallisto/vcpkg.json)
+
+```json
+{
+  "name": "kallisto-server",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "grpc",
+    "protobuf",
+    "simdjson",
+    "spdlog",
+    "fmt"
+  ]
+}
+```
 
 #### [MODIFY] [CMakeLists.txt](file:///workspaces/kallisto/CMakeLists.txt)
 
 ```cmake
-# Find gRPC and Protobuf
+cmake_minimum_required(VERSION 3.20)
+project(kallisto_server CXX)
+
+# 1. Performance Flags (Required for simdjson AVX2/AVX-512)
+if(MSVC)
+    add_compile_options(/O2 /arch:AVX2)
+else()
+    add_compile_options(-O3 -march=native -pthread)
+endif()
+
+# 2. Find packages (vcpkg handles correct versions)
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+find_package(simdjson CONFIG REQUIRED)
 
-# Generate proto files
-set(PROTO_FILES proto/kallisto.proto)
-protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
-grpc_generate_cpp(GRPC_SRCS GRPC_HDRS ${PROTO_FILES})
+# 3. Proto Generation (explicit add_custom_command for IDE compatibility)
+set(PROTO_DIR "proto")
+set(PROTO_FILES ${PROTO_DIR}/kallisto.proto)
+get_target_property(gRPC_CPP_PLUGIN_EXECUTABLE gRPC::grpc_cpp_plugin LOCATION)
 
-# Add simdjson for HTTP JSON parsing
-include(FetchContent)
-FetchContent_Declare(simdjson
-    GIT_REPOSITORY https://github.com/simdjson/simdjson.git
-    GIT_TAG v3.6.0
+set(GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY ${GEN_DIR})
+include_directories(${GEN_DIR})
+
+add_custom_command(
+    OUTPUT "${GEN_DIR}/kallisto.pb.cc" "${GEN_DIR}/kallisto.pb.h"
+           "${GEN_DIR}/kallisto.grpc.pb.cc" "${GEN_DIR}/kallisto.grpc.pb.h"
+    COMMAND protobuf::protoc
+      --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/${PROTO_DIR}
+      --cpp_out=${GEN_DIR}
+      --grpc_out=${GEN_DIR}
+      --plugin=protoc-gen-grpc=${gRPC_CPP_PLUGIN_EXECUTABLE}
+      ${PROTO_FILES}
+    DEPENDS ${PROTO_FILES}
 )
-FetchContent_MakeAvailable(simdjson)
 
-# Server library
+# 4. Proto library (separate for reuse in tests)
+add_library(kallisto_proto_lib STATIC
+    "${GEN_DIR}/kallisto.pb.cc"
+    "${GEN_DIR}/kallisto.grpc.pb.cc"
+)
+target_link_libraries(kallisto_proto_lib
+    PUBLIC
+    protobuf::libprotobuf
+    gRPC::grpc++
+)
+
+# 5. Server library
 add_library(kallisto_server_lib
     src/net/listener.cpp
     src/server/grpc_handler.cpp
     src/server/http_handler.cpp
-    ${PROTO_SRCS}
-    ${GRPC_SRCS}
 )
-target_link_libraries(kallisto_server_lib 
-    kallisto_lib 
-    gRPC::grpc++ 
-    protobuf::libprotobuf
-    simdjson
+target_link_libraries(kallisto_server_lib
+    PUBLIC
+    kallisto_lib
+    kallisto_proto_lib
+    simdjson::simdjson
+    gRPC::grpc++_reflection  # Debug: grpcurl localhost:8201 list
 )
 
-# Server executable
+# 6. Server executable
 add_executable(kallisto_server src/kallisto_server.cpp)
 target_link_libraries(kallisto_server kallisto_server_lib)
 ```
+
+**Tại sao bản này xịn hơn bản cũ:**
+- `add_custom_command` thay vì `protobuf_generate_cpp` → biết chính xác file sinh ra ở đâu (`build/generated`), IDE không báo lỗi đỏ
+- `kallisto_proto_lib` tách riêng → test link proto lib mà không compile lại
+- `gRPC::grpc++_reflection` → `grpcurl localhost:8201 list` liệt kê toàn bộ API
+- `-march=native` → simdjson tự detect CPU features (AVX2/AVX-512)
 
 ---
 
@@ -531,10 +597,39 @@ Target: **1M+ RPS** với 4 workers trên 4-core machine.
 
 ---
 
+## Future Optimizations (Post-Phase 2)
+
+> [!TIP]
+> Những tối ưu này chưa cần implement ngay, nhưng nên thiết kế interface sẵn để dễ plug-in sau.
+
+1. **RocksDB WriteBatch + TLS Buffer**: Khi tích hợp RocksDB (persistence layer), mỗi Worker gom writes vào TLS buffer, flush mỗi 5ms hoặc 100 requests bằng `WriteBatch`. Tránh N workers tranh nhau ghi vào RocksDB instance dù nó thread-safe (vẫn có internal locks).
+
+2. **HTTP Library Upgrade**: Nếu scope HTTP mở rộng quá 3 endpoints Vault KV v2, cân nhắc chuyển sang `nghttp2` (Envoy dùng) hoặc `uWebSockets` thay vì maintain minimal parser. Partial reads, chunked encoding, keep-alive rất dễ bug.
+
+3. **gRPC CQ eventfd Bridge**: Upgrade từ timer polling (1ms) sang dedicated lightweight thread poll CQ và push events về Dispatcher qua `eventfd`. Giảm latency từ ~1ms xuống ~μs.
+
+---
+
 ## Risk Mitigation
 
-1. **gRPC + epoll complexity**: Start với timer-based CQ polling (1ms). Optimize với eventfd later nếu cần.
+1. **gRPC + epoll complexity**: Start với timer-based CQ polling (1ms). Chấp nhận ~1ms latency overhead. **Đừng tối ưu sớm** — chỉ upgrade sang eventfd khi benchmark cho thấy latency jitter thực sự.
 
-2. **HTTP parsing bugs**: Use simdjson for JSON. Keep HTTP parser minimal - only support Vault KV v2 subset.
+2. **HTTP parsing bugs**: Use simdjson for JSON body. Header parse bằng string đơn giản. **Reject** mọi request không dùng `Content-Length` (chunked, 100-continue → 400).
 
 3. **SO_REUSEPORT kernel version**: Requires Linux 3.9+. Check với `uname -r`.
+
+4. **SO_REUSEPORT load imbalance**: Kernel không phân phối đều 100% (có thể 60/40). **Đừng implement Work Stealing** ở phase này — để Kernel lo. Chỉ cần nhắc nếu benchmark cho thấy skew nghiêm trọng.
+
+5. **Dependency Hell**: vcpkg Manifest Mode lock cứng versions. CI/CD và local dev luôn dùng cùng version gRPC/Protobuf/Abseil.
+
+---
+
+## Review Status
+
+🗳️ **QUORUM VOTE: COMMIT** — Plan đã được duyệt bởi hội đồng kiến trúc.
+
+| Aspect | Status |
+|--------|--------|
+| Architecture (SO_REUSEPORT, no Router) | ✅ APPROVED |
+| Build System (vcpkg + Reflection + Perf Flags) | ✅ APPROVED |
+| Core Tech (simdjson + gRPC Async) | ✅ APPROVED |
