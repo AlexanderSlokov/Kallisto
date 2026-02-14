@@ -27,7 +27,7 @@ namespace {
     std::atomic<bool> shutdown_requested{false};
     
     void signalHandler(int signum) {
-        info("[SERVER] Received signal " + std::to_string(signum) + ", shutting down...");
+        kallisto::info("[SERVER] Received signal " + std::to_string(signum) + ", shutting down...");
         shutdown_requested.store(true);
     }
 }

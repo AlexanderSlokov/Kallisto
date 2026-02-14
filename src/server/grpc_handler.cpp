@@ -4,6 +4,7 @@
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include "kallisto.grpc.pb.h"
+#include <chrono>
 
 namespace kallisto {
 namespace server {
@@ -16,46 +17,62 @@ class GrpcHandler::SecretServiceImpl final : public ::kallisto::SecretService::A
 };
 
 // ---------------------------------------------------------------------------
-// CallData: Manages the lifecycle of a single async RPC
+// CallData base: common interface for CQ tag dispatch
 // ---------------------------------------------------------------------------
 class GrpcHandler::CallData {
 public:
-    enum class Type { GET, PUT, DELETE, LIST };
+    virtual ~CallData() = default;
+    virtual void Proceed(bool ok) = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Typed CallData: each RPC type gets its own correctly-typed responder
+// ---------------------------------------------------------------------------
+template<typename Req, typename Resp>
+class TypedCallData : public GrpcHandler::CallData {
+public:
     enum class Status { CREATE, PROCESS, FINISH };
     
-    CallData(Type type,
-             SecretServiceImpl* service,
-             grpc::ServerCompletionQueue* cq,
-             std::shared_ptr<ShardedCuckooTable> storage)
-        : type_(type)
-        , service_(service)
-        , cq_(cq)
-        , storage_(std::move(storage))
+    using RequestFunc = std::function<void(
+        grpc::ServerContext*, Req*, 
+        grpc::ServerAsyncResponseWriter<Resp>*,
+        grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void*)>;
+    using HandleFunc = std::function<void(const Req&, Resp*, grpc::Status*)>;
+    using SpawnFunc = std::function<void()>;
+    
+    TypedCallData(RequestFunc request_fn, HandleFunc handle_fn, SpawnFunc spawn_fn)
+        : request_fn_(std::move(request_fn))
+        , handle_fn_(std::move(handle_fn))
+        , spawn_fn_(std::move(spawn_fn))
         , responder_(&ctx_)
         , status_(Status::CREATE) {
         Proceed(true);
     }
     
-    void Proceed(bool ok) {
+    void Proceed(bool ok) override {
         switch (status_) {
             case Status::CREATE:
                 status_ = Status::PROCESS;
-                RequestRpc();
+                request_fn_(&ctx_, &req_, &responder_, nullptr, nullptr, this);
                 break;
                 
-            case Status::PROCESS:
-                // Spawn new CallData to handle next request of same type
-                new CallData(type_, service_, cq_, storage_);
+            case Status::PROCESS: {
+                // Spawn replacement to accept next request of same type
+                spawn_fn_();
                 
                 if (!ok) {
                     status_ = Status::FINISH;
-                    responder_.Finish(grpc::Status::CANCELLED, this);
+                    responder_.FinishWithError(grpc::Status::CANCELLED, this);
                     return;
                 }
                 
-                HandleRequest();
-                break;
+                grpc::Status grpc_status = grpc::Status::OK;
+                handle_fn_(req_, &resp_, &grpc_status);
                 
+                status_ = Status::FINISH;
+                responder_.Finish(resp_, grpc_status, this);
+                break;
+            }
             case Status::FINISH:
                 delete this;
                 break;
@@ -63,100 +80,13 @@ public:
     }
     
 private:
-    void RequestRpc() {
-        switch (type_) {
-            case Type::GET:
-                service_->RequestGet(&ctx_, &get_req_, &responder_, cq_, cq_, this);
-                break;
-            case Type::PUT:
-                service_->RequestPut(&ctx_, &put_req_, &responder_, cq_, cq_, this);
-                break;
-            case Type::DELETE:
-                service_->RequestDelete(&ctx_, &del_req_, &responder_, cq_, cq_, this);
-                break;
-            case Type::LIST:
-                service_->RequestList(&ctx_, &list_req_, &responder_, cq_, cq_, this);
-                break;
-        }
-    }
-    
-    void HandleRequest() {
-        grpc::Status grpc_status = grpc::Status::OK;
-        
-        switch (type_) {
-            case Type::GET: {
-                auto result = storage_->lookup(get_req_.path());
-                if (result.has_value()) {
-                    auto& entry = result.value();
-                    get_resp_.set_value(entry.value);
-                    get_resp_.set_created_at(entry.timestamp);
-                    get_resp_.set_expires_at(0);
-                } else {
-                    grpc_status = grpc::Status(grpc::StatusCode::NOT_FOUND, 
-                                               "Secret not found: " + get_req_.path());
-                }
-                status_ = Status::FINISH;
-                responder_.Finish(get_resp_, grpc_status, this);
-                break;
-            }
-            case Type::PUT: {
-                SecretEntry entry;
-                entry.key = put_req_.path();
-                entry.value = put_req_.value();
-                entry.timestamp = std::time(nullptr);
-                
-                bool ok = storage_->insert(put_req_.path(), entry);
-                put_resp_.set_success(ok);
-                if (!ok) {
-                    put_resp_.set_error("Failed to insert secret (table may be full)");
-                }
-                status_ = Status::FINISH;
-                responder_.Finish(put_resp_, grpc::Status::OK, this);
-                break;
-            }
-            case Type::DELETE: {
-                bool ok = storage_->remove(del_req_.path());
-                del_resp_.set_success(ok);
-                status_ = Status::FINISH;
-                responder_.Finish(del_resp_, grpc::Status::OK, this);
-                break;
-            }
-            case Type::LIST: {
-                auto entries = storage_->get_all_entries();
-                for (const auto& entry : entries) {
-                    if (list_req_.prefix().empty() || 
-                        entry.key.find(list_req_.prefix()) == 0) {
-                        list_resp_.add_paths(entry.key);
-                        if (list_req_.limit() > 0 && 
-                            list_resp_.paths_size() >= list_req_.limit()) {
-                            break;
-                        }
-                    }
-                }
-                status_ = Status::FINISH;
-                responder_.Finish(list_resp_, grpc::Status::OK, this);
-                break;
-            }
-        }
-    }
-    
-    Type type_;
-    SecretServiceImpl* service_;
-    grpc::ServerCompletionQueue* cq_;
-    std::shared_ptr<ShardedCuckooTable> storage_;
+    RequestFunc request_fn_;
+    HandleFunc handle_fn_;
+    SpawnFunc spawn_fn_;
     grpc::ServerContext ctx_;
-    
-    // Request/Response objects (only one pair is used depending on type_)
-    ::kallisto::GetRequest get_req_;
-    ::kallisto::GetResponse get_resp_;
-    ::kallisto::PutRequest put_req_;
-    ::kallisto::PutResponse put_resp_;
-    ::kallisto::DeleteRequest del_req_;
-    ::kallisto::DeleteResponse del_resp_;
-    ::kallisto::ListRequest list_req_;
-    ::kallisto::ListResponse list_resp_;
-    
-    grpc::ServerAsyncResponseWriter<google::protobuf::Message> responder_;
+    Req req_;
+    Resp resp_;
+    grpc::ServerAsyncResponseWriter<Resp> responder_;
     Status status_;
 };
 
@@ -199,12 +129,10 @@ void GrpcHandler::initialize(uint16_t port) {
     spawnNewCallData();
     
     // Timer-based CQ polling (1ms interval)
-    // Accepted tradeoff: ~1ms latency overhead for much simpler code.
-    // Upgrade to eventfd bridge when benchmark shows jitter.
     poll_timer_ = dispatcher_.createTimer([this]() {
         pollCompletionQueue();
         if (running_) {
-            poll_timer_->enableTimer(1);  // Re-arm: poll every 1ms
+            poll_timer_->enableTimer(1);
         }
     });
     poll_timer_->enableTimer(1);
@@ -243,7 +171,6 @@ void GrpcHandler::pollCompletionQueue() {
     void* tag;
     bool ok;
     
-    // Non-blocking drain: process all available events
     while (cq_->AsyncNext(&tag, &ok, 
            gpr_time_0(GPR_CLOCK_REALTIME)) == grpc::CompletionQueue::GOT_EVENT) {
         auto* call = static_cast<CallData*>(tag);
@@ -252,11 +179,132 @@ void GrpcHandler::pollCompletionQueue() {
 }
 
 void GrpcHandler::spawnNewCallData() {
-    // Create one CallData per RPC type to start accepting requests
-    new CallData(CallData::Type::GET, service_.get(), cq_.get(), storage_);
-    new CallData(CallData::Type::PUT, service_.get(), cq_.get(), storage_);
-    new CallData(CallData::Type::DELETE, service_.get(), cq_.get(), storage_);
-    new CallData(CallData::Type::LIST, service_.get(), cq_.get(), storage_);
+    auto* svc = service_.get();
+    auto* cq = cq_.get();
+    auto stor = storage_;
+    
+    // GET
+    auto spawn_get = [this]() { spawnGet(); };
+    spawnGet();
+    
+    // PUT
+    auto spawn_put = [this]() { spawnPut(); };
+    spawnPut();
+    
+    // DELETE
+    auto spawn_del = [this]() { spawnDelete(); };
+    spawnDelete();
+    
+    // LIST
+    auto spawn_list = [this]() { spawnList(); };
+    spawnList();
+}
+
+void GrpcHandler::spawnGet() {
+    auto* svc = service_.get();
+    auto* cq = cq_.get();
+    auto stor = storage_;
+    
+    new TypedCallData<::kallisto::GetRequest, ::kallisto::GetResponse>(
+        [svc, cq](grpc::ServerContext* ctx, ::kallisto::GetRequest* req,
+                   grpc::ServerAsyncResponseWriter<::kallisto::GetResponse>* resp,
+                   grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
+            svc->RequestGet(ctx, req, resp, cq, cq, tag);
+        },
+        [stor](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
+               grpc::Status* status) {
+            auto result = stor->lookup(req.path());
+            if (result.has_value()) {
+                auto& entry = result.value();
+                resp->set_value(entry.value);
+                resp->set_created_at(
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        entry.created_at.time_since_epoch()).count());
+                resp->set_expires_at(0);
+            } else {
+                *status = grpc::Status(grpc::StatusCode::NOT_FOUND, 
+                                       "Secret not found: " + req.path());
+            }
+        },
+        [this]() { spawnGet(); }
+    );
+}
+
+void GrpcHandler::spawnPut() {
+    auto* svc = service_.get();
+    auto* cq = cq_.get();
+    auto stor = storage_;
+    
+    new TypedCallData<::kallisto::PutRequest, ::kallisto::PutResponse>(
+        [svc, cq](grpc::ServerContext* ctx, ::kallisto::PutRequest* req,
+                   grpc::ServerAsyncResponseWriter<::kallisto::PutResponse>* resp,
+                   grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
+            svc->RequestPut(ctx, req, resp, cq, cq, tag);
+        },
+        [stor](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
+               grpc::Status* status) {
+            SecretEntry entry;
+            entry.key = req.path();
+            entry.value = req.value();
+            entry.created_at = std::chrono::system_clock::now();
+            
+            bool ok = stor->insert(req.path(), entry);
+            resp->set_success(ok);
+            if (!ok) {
+                resp->set_error("Failed to insert secret (table may be full)");
+            }
+        },
+        [this]() { spawnPut(); }
+    );
+}
+
+void GrpcHandler::spawnDelete() {
+    auto* svc = service_.get();
+    auto* cq = cq_.get();
+    auto stor = storage_;
+    
+    new TypedCallData<::kallisto::DeleteRequest, ::kallisto::DeleteResponse>(
+        [svc, cq](grpc::ServerContext* ctx, ::kallisto::DeleteRequest* req,
+                   grpc::ServerAsyncResponseWriter<::kallisto::DeleteResponse>* resp,
+                   grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
+            svc->RequestDelete(ctx, req, resp, cq, cq, tag);
+        },
+        [stor](const ::kallisto::DeleteRequest& req, ::kallisto::DeleteResponse* resp, 
+               grpc::Status* status) {
+            bool ok = stor->remove(req.path());
+            resp->set_success(ok);
+        },
+        [this]() { spawnDelete(); }
+    );
+}
+
+void GrpcHandler::spawnList() {
+    auto* svc = service_.get();
+    auto* cq = cq_.get();
+    auto stor = storage_;
+    
+    new TypedCallData<::kallisto::ListRequest, ::kallisto::ListResponse>(
+        [svc, cq](grpc::ServerContext* ctx, ::kallisto::ListRequest* req,
+                   grpc::ServerAsyncResponseWriter<::kallisto::ListResponse>* resp,
+                   grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
+            svc->RequestList(ctx, req, resp, cq, cq, tag);
+        },
+        [stor](const ::kallisto::ListRequest& req, ::kallisto::ListResponse* resp, 
+               grpc::Status* status) {
+            auto entries = stor->get_all_entries();
+            for (const auto& entry : entries) {
+                if (req.prefix().empty() || 
+                    entry.key.find(req.prefix()) == 0) {
+                    resp->add_paths(entry.key);
+                    if (req.limit() > 0 && 
+                        resp->paths_size() >= req.limit()) {
+                        break;
+                    }
+                }
+            }
+        },
+        [this]() { spawnList(); }
+    );
 }
 
 } // namespace server

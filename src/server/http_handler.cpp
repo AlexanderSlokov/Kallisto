@@ -265,7 +265,8 @@ void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
     // Vault-style JSON response
     std::string json = "{\"data\":{\"data\":{\"value\":\"" + entry.value + "\"}},"
                        "\"metadata\":{\"created_time\":" + 
-                       std::to_string(entry.timestamp) + "}}";
+                       std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+                           entry.created_at.time_since_epoch()).count()) + "}}";
     
     sendResponse(conn, 200, "application/json", json);
 }
@@ -294,7 +295,7 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
     SecretEntry entry;
     entry.key = path;
     entry.value = value;
-    entry.timestamp = std::time(nullptr);
+    entry.created_at = std::chrono::system_clock::now();
     
     bool ok = storage_->insert(path, entry);
     

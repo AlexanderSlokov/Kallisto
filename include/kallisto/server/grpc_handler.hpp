@@ -52,14 +52,19 @@ public:
      * @return true if the handler is initialized and running
      */
     bool isRunning() const { return running_; }
+    
+    // Base class for async RPC lifecycle (public for TypedCallData inheritance)
+    class CallData;
 
 private:
-    // Internal CallData for async request lifecycle
-    class CallData;
     class SecretServiceImpl;
     
     void pollCompletionQueue();
     void spawnNewCallData();
+    void spawnGet();
+    void spawnPut();
+    void spawnDelete();
+    void spawnList();
     
     event::Dispatcher& dispatcher_;
     std::shared_ptr<ShardedCuckooTable> storage_;
