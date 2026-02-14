@@ -1,10 +1,13 @@
 #include "kallisto/event/worker.hpp"
+#include "kallisto/net/listener.hpp"
 #include "kallisto/logger.hpp"
 
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <sys/epoll.h>
+#include <unistd.h>
 
 namespace kallisto {
 
@@ -79,6 +82,31 @@ public:
         requests_processed_.fetch_add(1, std::memory_order_relaxed);
     }
 
+    void bindListener(uint16_t port, 
+                      std::function<void(int client_fd)> on_accept) override {
+        // Create listening socket with SO_REUSEPORT
+        int listen_fd = net::Listener::createListenSocket(port, true);
+        if (listen_fd < 0) {
+            error("[WORKER] " + name_ + " failed to bind listener on port " + std::to_string(port));
+            return;
+        }
+        
+        // Register with this worker's epoll
+        dispatcher_->addFd(listen_fd, EPOLLIN, [this, listen_fd, on_accept](uint32_t events) {
+            // Accept all pending connections (edge-triggered style)
+            while (true) {
+                int client_fd = net::Listener::acceptConnection(listen_fd, nullptr);
+                if (client_fd < 0) break;  // EAGAIN - no more pending connections
+                
+                recordRequest();
+                on_accept(client_fd);
+            }
+        });
+        
+        listen_fds_.push_back(listen_fd);
+        info("[WORKER] " + name_ + " bound listener on port " + std::to_string(port));
+    }
+
 private:
     void threadRoutine() {
         info("[WORKER] Worker " + name_ + " thread started");
@@ -104,6 +132,7 @@ private:
     std::atomic<bool> started_;
     std::function<void()> on_ready_;
     std::thread thread_;
+    std::vector<int> listen_fds_;  // SO_REUSEPORT listen sockets
 };
 
 /**
