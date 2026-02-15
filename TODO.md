@@ -307,4 +307,32 @@ Khi lắp thêm NuRaft,`Kallisto` sẽ có cấu trúc như sau:
 - `log_store`: Bạn dùng RocksDB để lưu các bản ghi log này xuống đĩa.
 
 4. Khi có HA (Raft), hiệu năng Write sẽ giảm xuống (vì phải chờ mạng giữa các máy và chờ Quorum), thường sẽ còn khoảng `50,000 - 150,000 ops/sec`. Nhưng hiệu năng Read thì vẫn đạt mức triệu ops/sec vì bạn đọc trực tiếp từ Cuckoo Table trên RAM của máy Leader (hoặc các máy Follower nếu bạn chấp nhận Read-after-write latency).
-Lời kết cho "Master Plan" của bạn:
+---
+
+## ✅ Phase 2: High-Performance Server & Networking (Feb 2026) - COMPLETE
+
+### 1. Kiến Trúc Thread-Per-Core (Envoy Style)
+- **Unified Event Loop**: Tích hợp gRPC CompletionQueue vào trong `Dispatcher` (epoll) dùng `timerfd` (1ms polling).
+- **SO_REUSEPORT**: 4 worker threads bind cùng port 8200/8201, kernel tự load balance. Không có acceptor thread bottleneck.
+- **HTTP/1.1 & Vault KV v2 API**: Tự viết parser (zero-copy), sử dụng `simdjson` để parse JSON cực nhanh.
+- **Graceful Shutdown**: Xử lý tín hiệu SIGINT/SIGTERM, drain connection an toàn.
+
+### 2. Critical Bug Fixes (Stability)
+- **Dispatcher Use-After-Free**: Fix lỗi crash kinh điển khi `unordered_map` rehash callback trong lúc đang iterate event loop.
+  - Giải pháp: **Deferred Mutation** (Pending Add/Remove queues) + `std::unique_ptr<Connection>`.
+- **Concurrency Crash**: Fix lỗi race condition ở `ShardedCuckooTable` khi write load cao.
+
+### 3. Server Benchmark Results (15/02/2026)
+Environment: AMD Ryzen 5 3550H (4 vCPUs allocated), 8GB RAM (CodeSpaces)
+*Lưu ý: Chạy trên CPU Laptop cũ (Zen+, 2019) trong Container.*
+
+| Endpoint | Workload | RPS (c=50) | Stability |
+|----------|----------|------------|-----------|
+| **GET** (Read) | JSON lookup | **67,987** | ✅ 100% |
+| **PUT** (Write) | JSON parse + Hash | **46,465** | ✅ 100% |
+| **MIXED** | 95% R / 5% W | **46,213** | ✅ 100% |
+
+**Đánh giá**: **EXCELLENT**.
+- Đạt ~17k RPS/core xử lý full HTTP/JSON stack.
+- Latency trung bình < 1ms (p99 ~7-9ms do container scheduling jitter).
+- Không có memory leak (ASAN verified).
