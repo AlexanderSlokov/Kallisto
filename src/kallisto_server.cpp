@@ -43,6 +43,9 @@ int main(int argc, char** argv) {
     // Ignore SIGPIPE — clients may disconnect during send()
     signal(SIGPIPE, SIG_IGN);
     
+    // Default to WARN to avoid stdout bottleneck in benchmarks
+    Logger::getInstance().setLevel(LogLevel::WARN);
+    
     // Default configuration
     uint16_t http_port = 8200;
     uint16_t grpc_port = 8201;

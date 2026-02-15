@@ -7,6 +7,7 @@
 #include <memory>
 #include <cstdint>
 #include <string>
+#include <thread>
 
 // Forward declarations for gRPC types (avoid heavy includes in header)
 namespace grpc {
@@ -72,7 +73,10 @@ private:
     std::unique_ptr<SecretServiceImpl> service_;
     std::unique_ptr<grpc::Server> server_;
     std::unique_ptr<grpc::ServerCompletionQueue> cq_;
-    event::TimerPtr poll_timer_;
+    
+    // Envoy-style: Dedicated thread to poll CQ + eventfd wakeup
+    std::thread polling_thread_;
+    void pollLoop();
     
     bool running_{false};
 };
