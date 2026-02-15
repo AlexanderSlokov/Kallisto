@@ -942,6 +942,19 @@ The user might notice a significant difference between the **Application Layer**
 
 **Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service. Using **gRPC (Protobuf)** or **HTTP/2** would likely double or triple this throughput (to ~150k-300k RPS) by using binary framing.
 
+### 8.5.2 gRPC Benchmark (Preliminary)
+
+We performed a preliminary benchmark of the **gRPC API** using a custom C++ client (`bench_grpc`).
+
+| Metric | Result | Note |
+| :--- | :--- | :--- |
+| **RPS** | ~3,587 req/s | Single-Threaded Client |
+| **Latency** | ~9-14 ms | High due to Polling Model |
+
+**Bottleneck Analysis**:
+Unlike the HTTP/1.1 Server which uses **Native Epoll** (Event-Driven) on 4 threads, the current gRPC implementation uses a **1ms Polling Timer** on a single thread to check the `CompletionQueue`. This integration strategy ("Sidecar Polling") introduces significant latency and limits throughput to the polling frequency.
+*Recommendation*: For production gRPC performance (100k+ RPS), we suggest moving to a **Thread-per-Core + dedicated CQ** model or using gRPC's `ExternalEventLoop` (if available) to remove the polling tax.
+
 ## 8.6. Conclusion
 
 The experimental results confirm the accuracy of Kallisto's design:

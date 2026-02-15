@@ -134,6 +134,15 @@ if(Protobuf_FOUND AND gRPC_FOUND)
     add_executable(test_listener tests/test_listener.cpp)
     target_link_libraries(test_listener kallisto_server_lib)
 
+    # gRPC Benchmark Client
+    add_executable(bench_grpc bench/bench_grpc_client.cpp)
+    target_link_libraries(bench_grpc
+        kallisto_lib
+        kallisto_proto_lib
+        gRPC::grpc++
+        protobuf::libprotobuf
+    )
+
 else()
     message(STATUS "gRPC/Protobuf not found - skipping server components (run vcpkg install)")
 endif()

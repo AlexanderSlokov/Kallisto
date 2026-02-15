@@ -123,7 +123,8 @@ gRPC Server ──► WorkerPool(N) ──┬─► Worker 0 ──► ShardedCu
 
 ### Cần Implement
 
-1. **gRPC Server** - Accept connections, parse requests
+1. [x] **Benchmark gRPC Server**: Basic implementation complete (~3.5k RPS due to polling).
+    - [ ] **Optimization**: Rewrite `GrpcHandler` to use dedicated threads/CQs instead of 1ms Timer polling.
 2. **Request Router** - Distribute to workers (round-robin hoặc hash-based)
 3. **WorkerPool Integration** - Mỗi worker xử lý requests độc lập
 
