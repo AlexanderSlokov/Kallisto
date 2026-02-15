@@ -911,7 +911,7 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 2.  Every `GET` operation is resolved on RAM with O(1) complexity.
 3.  The system maintains low latency (<1ms) even under high load.
 
-## 8.2. Server Benchmark (HTTP/1.1 Vault API)
+## 8.5. Server Benchmark (HTTP/1.1 Vault API)
 
 **Date**: 2026-02-15  
 **Environment**: 4 vCPU, 8GB RAM (CodeSpaces)  
@@ -927,7 +927,22 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 
 *Note: Benchmarks were conducted at concurrency c=50 to ensure stability within the CodeSpaces environment. The architecture is capable of much higher throughput on bare metal hardware.*
 
-## 8.5. Conclusion
+### 8.5.1 Performance Gap Analysis (Why 2.7M -> ~68k RPS?)
+
+The user might notice a significant difference between the **Application Layer** (HTTP/1.1) result (~68k RPS) and the **Core Engine** (In-Memory) result (~2.7M RPS). This "tax" is paid to the Operating System and Data Serialization:
+
+1.  **Network Stack (Kernel Space)**:
+    -   Every request involves `epoll_wait`, `read` (syscall), TCP/IP processing, context switches, and `write` (syscall).
+    -   In a **Virtual Container** (like GitHub Codespaces), the network bridge is software-emulated, adding 50-70% overhead compared to bare-metal NICs.
+
+2.  **Data Serialization (User Space)**:
+    -   **HTTP/1.1**: Text-based protocol requires parsing every byte (METHOD /path PROTOCOL\r\nHeader: ...).
+    -   **JSON Parsing**: Converting `{"key":"value"}` strings to C++ objects and back is CPU-intensive.
+    -   *In-Memory Benchmark* calls C++ functions directly (Zero-Copy), bypassing all parsing.
+
+**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service. Using **gRPC (Protobuf)** or **HTTP/2** would likely double or triple this throughput (to ~150k-300k RPS) by using binary framing.
+
+## 8.6. Conclusion
 
 The experimental results confirm the accuracy of Kallisto's design:
 
