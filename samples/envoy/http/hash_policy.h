@@ -1,52 +1,51 @@
 #pragma once
 
-#include "envoy/http/header_map.h"
-#include "envoy/stream_info/stream_info.h"
-
-#include "absl/types/optional.h"
+#include "envoy/config/route/v3/route_components.pb.h"
+#include "envoy/http/hash_policy.h"
+#include "envoy/stream_info/filter_state.h"
 
 namespace Envoy {
+
+namespace Regex {
+class Engine;
+}
+
 namespace Http {
 
 /**
- * CookieAttribute that stores the name and value of a cookie.
+ * Implementation of HashPolicy that reads from the proto route config.
  */
-class CookieAttribute {
+class HashPolicyImpl : public HashPolicy {
 public:
-  std::string name_;
-  std::string value_;
-};
+  static absl::StatusOr<std::unique_ptr<HashPolicyImpl>>
+  create(absl::Span<const envoy::config::route::v3::RouteAction::HashPolicy* const> hash_policy,
+         Regex::Engine& regex_engine);
 
-/**
- * Request hash policy. I.e., if using a hashing load balancer, how a request should be hashed onto
- * an upstream host.
- */
-class HashPolicy {
-public:
-  virtual ~HashPolicy() = default;
+  // Http::HashPolicy
+  absl::optional<uint64_t> generateHash(OptRef<const RequestHeaderMap> headers,
+                                        OptRef<const StreamInfo::StreamInfo> info,
+                                        AddCookieCallback add_cookie = nullptr) const override;
 
-  /**
-   * A callback used for requesting that a cookie be set with the given lifetime.
-   * @param key the name of the cookie to be set
-   * @param path the path of the cookie, or the empty string if no path should be set.
-   * @param ttl the lifetime of the cookie
-   * @return std::string the opaque value of the cookie that will be set
-   */
-  using AddCookieCallback = std::function<std::string(
-      absl::string_view name, absl::string_view path, std::chrono::seconds ttl,
-      absl::Span<const CookieAttribute> attributes)>;
+  class HashMethod {
+  public:
+    virtual ~HashMethod() = default;
+    virtual absl::optional<uint64_t> evaluate(OptRef<const RequestHeaderMap> headers,
+                                              OptRef<const StreamInfo::StreamInfo> info,
+                                              AddCookieCallback add_cookie = nullptr) const PURE;
 
-  /**
-   * @param headers stores the HTTP headers for the stream.
-   * @param info stores the stream info for the stream.
-   * @param add_cookie is called to add a set-cookie header on the reply sent to the downstream
-   * host.
-   * @return absl::optional<uint64_t> an optional hash value to route on. A hash value might not be
-   * returned if for example the specified HTTP header does not exist.
-   */
-  virtual absl::optional<uint64_t> generateHash(OptRef<const RequestHeaderMap> headers,
-                                                OptRef<const StreamInfo::StreamInfo> info,
-                                                AddCookieCallback add_cookie = nullptr) const PURE;
+    // If the method is a terminal method, ignore rest of the hash policy chain.
+    virtual bool terminal() const PURE;
+  };
+
+  using HashMethodPtr = std::unique_ptr<HashMethod>;
+
+protected:
+  explicit HashPolicyImpl(
+      absl::Span<const envoy::config::route::v3::RouteAction::HashPolicy* const> hash_policy,
+      Regex::Engine& regex_engine, absl::Status& creation_status);
+
+private:
+  std::vector<HashMethodPtr> hash_impls_;
 };
 
 } // namespace Http
