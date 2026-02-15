@@ -2,16 +2,6 @@
 
 Biến Kallisto từ CLI tool thành **Production-Grade Secret Server** với kiến trúc Envoy-style: mỗi Worker tự accept connections, zero context switch, kernel load-balancing qua SO_REUSEPORT.
 
-## User Review Required
-
-> [!IMPORTANT]  
-> **Estimated effort: 30-35 giờ** - Đây là đường khó hơn nhưng cho performance tốt nhất (1M+ RPS).
-
-> [!WARNING]
-> **gRPC + epoll integration phức tạp**: Cần bridge gRPC CompletionQueue với Dispatcher qua eventfd. Có thể gặp edge cases.
-
----
-
 ## Architecture Overview
 
 ```
@@ -40,11 +30,10 @@ Biến Kallisto từ CLI tool thành **Production-Grade Secret Server** với ki
 └───────────────────┘ └───────────────────┘ └───────────────────┘
 ```
 
-**Key differences from Opus's plan:**
-- ❌ No central "Request Router"
-- ✅ Each Worker calls `accept()` directly with SO_REUSEPORT
-- ✅ Zero queue contention, zero context switch
-- ✅ Kernel does the load balancing
+**Key differences:**
+- Each Worker calls `accept()` directly with SO_REUSEPORT
+- Zero queue contention, zero context switch
+- Kernel does the load balancing
 
 ---
 
@@ -633,3 +622,32 @@ Target: **1M+ RPS** với 4 workers trên 4-core machine.
 | Architecture (SO_REUSEPORT, no Router) | ✅ APPROVED |
 | Build System (vcpkg + Reflection + Perf Flags) | ✅ APPROVED |
 | Core Tech (simdjson + gRPC Async) | ✅ APPROVED |
+
+## Technical Context: gRPC Performance Issue
+
+### 1. Old Implementation (Baseline)
+- **Mechanism**: Timer-based polling. The Worker thread wakes up every 1ms to poll the gRPC `CompletionQueue` non-blockingly (`AsyncNext`).
+- **Performance**: Consistent **3.5k - 4k RPS** on gRPC GET/PUT.
+- **Pros**: Low overhead, single-threaded per worker.
+- **Cons**: High latency (avg 0.5ms jitter due to timer).
+
+### 2. Current Implementation (Envoy-Style Bridge)
+- **Mechanism**: Dedicated gRPC polling thread per worker.
+- **Logic**: 
+  - gRPC thread blocks on `cq->Next()`.
+  - When a request arrives, it pushes the event to a `bridge_queue_` and calls `dispatcher.post()` which writes to an `eventfd` to wake up the Worker thread.
+  - Worker thread drains `bridge_queue_` and processes responses.
+- **Performance**: Massive drop to **~600 - 800 RPS**.
+- **Issue**: **Inter-thread Communication Storm**.
+  - High frequency of `write/read` syscalls to `eventfd`.
+  - Excessive Context Switches between gRPC and Worker threads.
+  - Mutex contention on the bridge queue.
+- **Optimization Attempted**: "Signal-if-Empty" (only call `post()` if the queue was empty) and batching multiple events. Improved RPS slightly but still nowhere near the baseline.
+
+### 3. Goal
+Maintain sub-microsecond latency (avoiding the 1ms timer) while restoring or exceeding the 3.5k RPS throughput.
+
+### 4. Code References for AI Review
+- `include/kallisto/server/grpc_handler.hpp`
+- `src/server/grpc_handler.cpp`
+- `src/event/dispatcher_impl.cpp` (specifically `post()` and `wakeup()` implementation)
