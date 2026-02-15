@@ -1,0 +1,13 @@
+{
+	"name": "kallisto-server",
+	"version-string": "0.1.0",
+	"dependencies": [
+		{
+			"name": "grpc",
+			"features": [],
+			"default-features": true
+		},
+		"protobuf",
+		"simdjson"
+	]
+}

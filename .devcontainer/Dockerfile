@@ -1,6 +1,6 @@
-# Dockerfile cập nhật
-FROM ubuntu:24.04
+FROM mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04
 
+# 1. Cài thêm 'sudo' và các gói cần thiết
 RUN apt-get update && apt-get install -y \
     build-essential \
     clang \
@@ -14,18 +14,22 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     procps \
+    sudo \
     ca-certificates \
     libspdlog-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Cài đặt Locust system-wide để dùng được luôn trong terminal
 RUN pip3 install locust --break-system-packages
 
-# Thêm user "vscode" cho môi trường phát triển
-RUN useradd -ms /bin/bash vscode
+# # 2. Tạo user vscode và cấp quyền SUDO (Quan trọng để tránh lỗi 127)
+# RUN useradd -ms /bin/bash vscode \
+#     && echo "vscode ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/vscode \
+#     && chmod 0440 /etc/sudoers.d/vscode
 
-# [Kallisto] Tạo thư mục data và setup quyền cho user vscode
+# [Kallisto] Tạo thư mục data
 RUN mkdir -p /data/kallisto && chown -R vscode:vscode /data/kallisto
 
 USER vscode
-WORKDIR /workspaces/kallisto
+
+# # 3. Đổi Workdir về /workspaces (nơi code được mount vào)
+# WORKDIR /workspaces

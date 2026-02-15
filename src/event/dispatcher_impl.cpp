@@ -11,6 +11,7 @@
 #include <mutex>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <queue>
 #include <atomic>
 
@@ -139,7 +140,31 @@ public:
         struct epoll_event events[MAX_EVENTS];
 
         while (!exit_requested_) {
+            // 1. HOT PATH: Process tasks immediately (simulates memory bus)
+            runPostedCallbacks();
+
+            // 2. Prepare to sleep
+            is_sleeping_.store(true, std::memory_order_release);
+
+            // 3. Double-check queue to avoid race condition
+            // (Task might have arrived after runPostedCallbacks but before is_sleeping_=true)
+            bool have_tasks = false;
+            {
+                std::lock_guard<std::mutex> lock(post_mutex_);
+                have_tasks = !post_queue_.empty();
+            }
+
+            if (have_tasks) {
+                // Abort sleep, process tasks immediately
+                is_sleeping_.store(false, std::memory_order_release);
+                continue;
+            }
+
+            // 4. SLOW PATH: Wait for events
             int nfds = epoll_wait(epoll_fd_, events, MAX_EVENTS, EPOLL_TIMEOUT_MS);
+            
+            // 5. Woke up
+            is_sleeping_.store(false, std::memory_order_release);
             
             if (nfds < 0) {
                 if (errno == EINTR) continue;  // Interrupted by signal
@@ -147,15 +172,21 @@ public:
                 break;
             }
 
+            // === BEGIN EVENT PROCESSING (no map mutations allowed) ===
+            is_iterating_ = true;
+
             // Process events
             for (int i = 0; i < nfds; ++i) {
                 int fd = events[i].data.fd;
                 uint32_t event_mask = events[i].events;
 
+                // Skip fds that were removed by a callback earlier in this batch
+                if (removed_this_batch_.count(fd)) continue;
+
                 if (fd == wakeup_fd_) {
-                    // Wakeup event - drain the eventfd and process posted callbacks
+                    // Wakeup event - drain the eventfd
                     drainWakeup();
-                    runPostedCallbacks();
+                    // runPostedCallbacks() will be called at top of loop
                 } else if (auto it = timers_.find(fd); it != timers_.end()) {
                     // Timer event
                     it->second->fire();
@@ -165,8 +196,21 @@ public:
                 }
             }
 
-            // Also run posted callbacks after each iteration (in case wakeup was missed)
-            runPostedCallbacks();
+            is_iterating_ = false;
+            // === END EVENT PROCESSING ===
+
+            // Flush deferred removals (erase callbacks from map)
+            for (int fd : pending_removals_) {
+                fd_callbacks_.erase(fd);
+            }
+            pending_removals_.clear();
+            removed_this_batch_.clear();
+
+            // Flush deferred adds (move callbacks into map)
+            for (auto& [fd, cb] : pending_adds_) {
+                fd_callbacks_[fd] = std::move(cb);
+            }
+            pending_adds_.clear();
         }
 
         running_ = false;
@@ -183,7 +227,13 @@ public:
             std::lock_guard<std::mutex> lock(post_mutex_);
             post_queue_.push(std::move(callback));
         }
-        wakeup();
+        
+        // Hybrid Polling Optimization:
+        // Only call syscall if Worker is actually sleeping.
+        // If Worker is awake, it will check the queue in its loop.
+        if (is_sleeping_.load(std::memory_order_acquire)) {
+            wakeup();
+        }
     }
 
     TimerPtr createTimer(std::function<void()> cb) override {
@@ -202,6 +252,7 @@ public:
     }
 
     void addFd(int fd, uint32_t events, FdCb cb) override {
+        // Always register with epoll immediately (so events arrive next cycle)
         struct epoll_event ev{};
         ev.events = events;
         ev.data.fd = fd;
@@ -211,7 +262,12 @@ public:
             return;
         }
         
-        fd_callbacks_[fd] = std::move(cb);
+        if (is_iterating_) {
+            // Defer the map mutation — store callback for post-loop flush
+            pending_adds_.emplace_back(fd, std::move(cb));
+        } else {
+            fd_callbacks_[fd] = std::move(cb);
+        }
     }
 
     void modifyFd(int fd, uint32_t events) override {
@@ -225,8 +281,16 @@ public:
     }
 
     void removeFd(int fd) override {
+        // Always remove from epoll immediately (stop receiving events)
         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-        fd_callbacks_.erase(fd);
+        
+        if (is_iterating_) {
+            // Defer the map mutation — mark for post-loop cleanup
+            pending_removals_.push_back(fd);
+            removed_this_batch_.insert(fd);
+        } else {
+            fd_callbacks_.erase(fd);
+        }
     }
 
     bool isThreadSafe() const override {
@@ -249,12 +313,16 @@ private:
 
     void drainWakeup() {
         uint64_t val;
+        // eventfd is in non-blocking mode, so we can read until EAGAIN
         while (read(wakeup_fd_, &val, sizeof(val)) > 0) {
             // Drain all pending wakeups
         }
     }
 
     void runPostedCallbacks() {
+        // Optimize: check if queue is empty before locking
+        if (post_queue_.empty()) return; 
+
         std::queue<PostCb> to_run;
         {
             std::lock_guard<std::mutex> lock(post_mutex_);
@@ -274,6 +342,7 @@ private:
     
     std::atomic<bool> running_;
     std::atomic<bool> exit_requested_;
+    std::atomic<bool> is_sleeping_{false};
     std::thread::id run_thread_id_;
     
     // Posted callbacks (protected by mutex, but run on dispatcher thread)
@@ -282,6 +351,12 @@ private:
     
     // File descriptor callbacks
     std::unordered_map<int, FdCb> fd_callbacks_;
+    
+    // Deferred mutation state (prevents map modification during event iteration)
+    bool is_iterating_{false};
+    std::vector<int> pending_removals_;                      // fds to erase after loop
+    std::unordered_set<int> removed_this_batch_;             // fast lookup for skipping
+    std::vector<std::pair<int, FdCb>> pending_adds_;         // fds to insert after loop
     
     // Timer tracking (we store raw pointers; TimerImpl stored elsewhere)
     std::unordered_map<int, TimerImpl*> timers_;

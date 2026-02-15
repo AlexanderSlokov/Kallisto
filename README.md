@@ -82,9 +82,273 @@ This project integrates 3 major concepts from the Research Pool (Days 1–11):
 
 ---
 
-# III. THEORY
+# III. HOW TO USE
 
-## 3.1. SipHash
+Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for interactive local usage, and a **Server mode** with HTTP + gRPC APIs for production deployment.
+
+## 3.1. Prerequisites
+
+- **C++20 compiler** (GCC 13+ or Clang 16+)
+- **CMake** 3.20+
+- **vcpkg** (only for Server mode — provides gRPC, Protobuf, simdjson)
+
+## 3.2. Building
+
+### Core Build (CLI only — no external dependencies)
+
+```bash
+make build
+```
+
+### Server Build (HTTP + gRPC — requires vcpkg)
+
+```bash
+# First time: install vcpkg dependencies (~30 min, cached after first run)
+export VCPKG_ROOT=/usr/local/vcpkg
+
+# Build everything including server
+make build-server
+```
+
+## 3.3. CLI Mode (Interactive REPL)
+
+Start the interactive CLI:
+
+```bash
+make run
+```
+
+### Available Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `PUT <path> <key> <value>` | Store a secret | `PUT /prod/db password s3cret` |
+| `GET <path> <key>` | Retrieve a secret | `GET /prod/db password` |
+| `DEL <path> <key>` | Delete a secret | `DEL /prod/db password` |
+| `BENCH <count>` | Run performance benchmark | `BENCH 1000000` |
+| `SAVE` | Force flush to disk | `SAVE` |
+| `MODE <STRICT\|BATCH>` | Set persistence mode | `MODE BATCH` |
+| `LOGLEVEL <LEVEL>` | Set log verbosity | `LOGLEVEL DEBUG` |
+| `HELP` | Show all commands | `HELP` |
+| `EXIT` | Quit | `EXIT` |
+
+### Usage Example
+
+```
+> PUT /prod/db password super-secret-123
+OK
+> GET /prod/db password
+super-secret-123
+> MODE BATCH
+OK (Mode: BATCH)
+> BENCH 1000000
+Write Time: 4.4811s | RPS: 223158.4057
+Read Time : 2.7826s | RPS: 359379.4067
+Hits      : 1000000/1000000
+> SAVE
+OK (Saved to disk)
+```
+
+## 3.4. Server Mode (Envoy-Style Architecture)
+
+The server uses an **Envoy-style SO_REUSEPORT** architecture with a thread-per-core model. Each worker thread binds its own listener socket; the kernel distributes connections, eliminating central bottlenecks.
+
+### Starting the Server
+
+```bash
+make run-server
+```
+
+Or with custom options:
+
+```bash
+./build/kallisto_server --http-port=8200 --grpc-port=8201 --workers=8
+```
+
+### Server CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--http-port=PORT` | `8200` | HTTP API port (Vault-compatible) |
+| `--grpc-port=PORT` | `8201` | gRPC API port |
+| `--workers=N` | CPU cores | Number of worker threads |
+| `--help`, `-h` | — | Show help |
+
+### Expected Startup Output
+
+```
+========================================
+  Kallisto Secret Server v0.1.0
+  HTTP port:  8200
+  gRPC port:  8201
+  Workers:    8
+========================================
+[SERVER] Kallisto is READY. Accepting connections.
+[SERVER] Press Ctrl+C to shutdown.
+```
+
+## 3.5. HTTP API (Vault KV v2 Compatible)
+
+Kallisto exposes a Vault-compatible HTTP API on port **8200** by default. All endpoints use the `/v1/secret/data/` prefix, matching HashiCorp Vault's KV v2 API.
+
+### Store a Secret
+
+```bash
+curl -X POST http://localhost:8200/v1/secret/data/myapp/db-password \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"value":"super-secret-123"}}'
+```
+
+Response:
+```json
+{"data":{"created":true}}
+```
+
+### Retrieve a Secret
+
+```bash
+curl http://localhost:8200/v1/secret/data/myapp/db-password
+```
+
+Response:
+```json
+{
+  "data": {
+    "data": {
+      "value": "super-secret-123"
+    }
+  },
+  "metadata": {
+    "created_time": 1771065876
+  }
+}
+```
+
+### Delete a Secret
+
+```bash
+curl -X DELETE http://localhost:8200/v1/secret/data/myapp/db-password
+```
+
+Response: `204 No Content`
+
+### Error Handling
+
+```bash
+# Requesting a non-existent secret
+curl http://localhost:8200/v1/secret/data/does-not-exist
+```
+
+Response:
+```json
+{"errors":["Secret not found"]}
+```
+
+| Status Code | Meaning |
+|-------------|---------|
+| `200` | Success |
+| `204` | Deleted successfully (no body) |
+| `400` | Bad request (chunked encoding, Expect header) |
+| `404` | Secret not found / invalid route |
+| `405` | Method not allowed |
+| `500` | Internal error |
+
+## 3.6. gRPC API
+
+Kallisto exposes a `SecretService` on port **8201** with gRPC reflection enabled (inspectable with `grpcurl`).
+
+### Service Definition
+
+```protobuf
+service SecretService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc List(ListRequest) returns (ListResponse);
+}
+```
+
+### Example with grpcurl
+
+```bash
+# List available services
+grpcurl -plaintext localhost:8201 list
+
+# Store a secret
+grpcurl -plaintext -d '{"path":"myapp/db-pass","value":"c2VjcmV0"}' \
+  localhost:8201 kallisto.SecretService/Put
+
+# Retrieve a secret
+grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
+  localhost:8201 kallisto.SecretService/Get
+
+# List all secrets
+grpcurl -plaintext -d '{"prefix":"myapp/","limit":10}' \
+  localhost:8201 kallisto.SecretService/List
+
+# Delete a secret
+grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
+  localhost:8201 kallisto.SecretService/Delete
+```
+
+## 3.7. Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build core (CLI only) |
+| `make build-server` | Build with gRPC/HTTP server |
+| `make run` | Start interactive CLI |
+| `make run-server` | Start the Kallisto server |
+| `make test` | Run unit tests |
+| `make test-listener` | Run SO_REUSEPORT tests |
+| `make test-threading` | Run threading tests |
+| `make benchmark-batch` | Benchmark 1M ops (Batch mode) |
+| `make benchmark-strict` | Benchmark 5K ops (Strict mode) |
+| `make benchmark-multithread` | Multi-threaded benchmark |
+| `make benchmark-p99` | Latency p99 benchmark |
+| `make benchmark-dos` | DoS resistance benchmark |
+| `make clean` | Remove build artifacts |
+| `make logs` | View server logs |
+
+## 3.8. Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Kallisto Server                     │
+│                                                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
+│  │ Worker 0 │  │ Worker 1 │  │ Worker N │   ...     │
+│  │ ┌──────┐ │  │ ┌──────┐ │  │ ┌──────┐ │          │
+│  │ │epoll │ │  │ │epoll │ │  │ │epoll │ │          │
+│  │ └──┬───┘ │  │ └──┬───┘ │  │ └──┬───┘ │          │
+│  │    │     │  │    │     │  │    │     │          │
+│  │ ┌──┴───┐ │  │ ┌──┴───┐ │  │ ┌──┴───┐ │          │
+│  │ │HTTP  │ │  │ │HTTP  │ │  │ │HTTP  │ │  :8200   │
+│  │ │Listen│ │  │ │Listen│ │  │ │Listen│ │          │
+│  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │          │
+│  │ ┌──────┐ │  │ ┌──────┐ │  │ ┌──────┐ │          │
+│  │ │gRPC  │ │  │ │gRPC  │ │  │ │gRPC  │ │  :8201   │
+│  │ │CQ    │ │  │ │CQ    │ │  │ │CQ    │ │          │
+│  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │          │
+│  └──────────┘  └──────────┘  └──────────┘          │
+│                      │                              │
+│              SO_REUSEPORT                           │
+│         (Kernel distributes conns)                  │
+│                      │                              │
+│          ┌───────────┴──────────┐                   │
+│          │  ShardedCuckooTable  │                    │
+│          │  (64 shards, 1M+)   │                    │
+│          └──────────────────────┘                   │
+└─────────────────────────────────────────────────────┘
+```
+
+Each worker is independent — zero lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections, achieving near-linear scaling with CPU cores.
+
+---
+
+# IV. THEORY
+
+## 4.1. SipHash
 
 *"SipHash is a cryptographically secure PRF -- a keyed hash function -- that performs very well for short inputs, hence the name. It was designed by cryptographers Daniel J. Bernstein and Jean-Philippe Aumasson. It is intended as a replacement for some uses of: jhash, md5_transform, sha1_transform, and so forth."* [https://docs.kernel.org/security/siphash.html](https://docs.kernel.org/security/siphash.html)
 
@@ -98,24 +362,24 @@ A secret management system uses hash table to query secret entry must face the r
 
 To protect the system from DoS attacks, we implement SipHash with a "secret key" `KALLISTO_SIPHASH_SECRET_KEY` to ensure that the hash table is immune to hash flooding attacks.
 
-### 3.1.2. But why SipHash?
+### 4.1.2. But why SipHash?
 
 SipHash uses a bit-reversal (Add-Rotate-XOR) architecture to create noise bits (noise bit) in the hashing process without consuming too much CPU resources (bit rotation only takes place in one clock cycle, so it is very fast and effective in a CPU cycle).
 
-#### 3.1.3. Why SipHash is more secure than MurmurHash/CityHash?
+#### 4.1.3. Why SipHash is more secure than MurmurHash/CityHash?
 
 Fast hash functions (Non-cryptographic) like MurmurHash only strong about speed but weak about bit change so they do not ensure the highest security like SipHash with Avalanche Effect. An attacker can easily find two strings `KeyA` and `KeyB` have the same hash.
 SipHash uses a "Secret Key" (128-bit) as input parameter. If the attacker does not know the key, he cannot calculate the hash of any string in advance, so he cannot create millions of requests with the same hash index to congest the Cuckoo Table. However, the security limit of SipHash also lies in the key size (128 bits) and output size (64 bits). Although the possibility of being attacked can be reduced to 2^64 (if SipHash is used as MAC), or guessing the secret key ("2 ^ s-128"; with "2 ^ s" is the number of keys tried and failed). But with the amount of requests into the system (usually only several hundred thousand requests per second), the attacker cannot perform a "hash flooding" attack, except by mobilizing a Botnet with a very large number of bot machines attacking a single instance, or using a quantum computer.
 
-## 3.2. Cuckoo Hashing
+## 4.2. Cuckoo Hashing
 
-### 3.2.1. The Architecture (Two Functions, Two Tables)
+### 4.2.1. The Architecture (Two Functions, Two Tables)
 
 Instead of relying on a single location for each key and only having one hash table to determine all the values stored, Cuckoo Hashing utilizes two independent hash functions and typically two hash tables. This design gives every key exactly two possible locations to reside, somewhere on the first table - or somewhere on the second table, else none existed. Hence it allows 
 the algorithm to resolve collisions by moving keys between their two potential 
 homes. 
 
-### 3.2.2. The Insertion Process: "Kicking Out" Strategy 
+### 4.2.2. The Insertion Process: "Kicking Out" Strategy 
 
 It works just like the cuckoo bird's behavior (cuckoo bird's younglings kicks the host’s children out of the nest): 
 
@@ -127,13 +391,13 @@ The displaced key “y” must now move to the second table using hash function 
 
 If y's new spot is also occupied, it evicts the incumbent key, triggering a chain reaction of displacements until a key lands in an empty slot (or a cycle is detected, triggering a rehash). 
 
-### 3.2.3. The Guarantee: O(1) Worst-Case Lookup 
+### 4.2.3. The Guarantee: O(1) Worst-Case Lookup 
 
 Regardless of how full the table is or how complex the insertion chain was, to find a key, the algorithm only needs to check at most two locations: T_1[h_1(x)] and T_2[h_2(x)]. Since the number of checks is constant (always 2 placed slots we calculated), the search time complexity is guaranteed to be O(1) in the worst case, eliminating the performance degradation seen in Chaining or Linear Probing.
 
-## 3.3. B-Trees & Disk-Optimized Storage
+## 4.3. B-Trees & Disk-Optimized Storage
 
-### 3.3.1. Theoretical Definition
+### 4.3.1. Theoretical Definition
 
 A B-Tree of order *m* is a self-balancing tree data structure that maintains sorted data and allows searches, sequential access, insertions, and deletions in logarithmic time. Unlike self-balancing binary search trees (like AVL or Red-Black trees), the B-Tree is generalized to allow nodes to have more than two children, making it optimized for systems that read and write large blocks of data (like Hard Drives or SSDs).
 
@@ -143,7 +407,7 @@ A B-Tree of order *m* is a self-balancing tree data structure that maintains sor
 3.  **Keys**: A node with k children contains k-1 keys.
 4.  **Ordering**: Keys in a node are sorted in increasing order, separating the ranges of keys covered by its subtrees.
 
-### 3.3.2. Complexity Analysis
+### 4.3.2. Complexity Analysis
 
 User operations (Search, Insert, Delete) run in O(log_m N) time. Where N is the total number of items and m is the branching factor (degree).
 
@@ -155,11 +419,11 @@ Binary Tree Height: ~20 levels.
 B-Tree (m=100) Height: ~3 levels.
 Since accessing a node may require a Disk I/O (which is slow), reducing the height from 20 to 3 results in a massive performance gain.
 
-### 3.3.3. Why use B-Tree to validate Path?
+### 4.3.3. Why use B-Tree to validate Path?
 
 A secret management system does not only store secrets in RAM but also needs to store them on disk (persistent storage). B-Tree optimizes the number of reads/writes (I/O) and path lookup in B-Tree takes O(log N), very fast to block malicious requests (e.g., user asks for path `/admin/`... but the system has never created this path, B-Tree will block the logic before even starting SipHash, calculating hash, and comparing with entries in Cuckoo Table).
 
-### 3.3.4. Flow Insert Path
+### 4.3.4. Flow Insert Path
 
 Example 1, if `PUT /prod/payment`:
 1.  System runs from root.
@@ -167,7 +431,7 @@ Example 1, if `PUT /prod/payment`:
 3.  Find the appropriate child branch (greater than/less than key).
 4.  Recursively down (Insert Non-Full).
 
-### 3.3.5. Flow Validate Path
+### 4.3.5. Flow Validate Path
 
 Example 2, if `GET /prod/payment`:
 1.  Compare `/prod/payment` with keys in the current node.
@@ -177,15 +441,15 @@ Example 2, if `GET /prod/payment`:
 
 Complexity is always Logarithm base `degree` of N (O(log_t N)). With degree=100, a tree containing 1 million paths is only 3 levels high, maximum 3 pointer jumps.
 
-# IV. Applications
+# V. Applications
 
-## 4.1. Storage Engine
+## 5.1. Storage Engine
 
 The report writer will use Binary File Packing (/data/kallisto/kallisto.db). The goal is High Performance so it will be very unreasonable if we process data on RAM then fast, but the application must interact with the disk very slowly due to creating thousands of folders by level causing inode overhead. Loading `load_snapshot` from 1 file binary into RAM will be much faster than scanning folders.
 
-# V. Implementation Details
+# VI. Implementation Details
 
-## 5.1. Cuckoo Table Code Explanation
+## 6.1. Cuckoo Table Code Explanation
 
 We choose Cuckoo Hashing with a size of 16384 slots (serving to test the insert and retrieve 10 thousand times) to ensure the highest performance.
 
@@ -208,7 +472,7 @@ KallistoServer::KallistoServer() {
 }
 ```
 
-### 5.1.1. Core Logic (Simplified)
+### 6.1.1. Core Logic (Simplified)
 Logic "Kick-out" (Cuckoo Displacement) từ file `src/cuckoo_table.cpp` giúp đạt O(1) được phát triển như sau
 
 ```cpp
@@ -260,15 +524,15 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 }
 ```
 
-### 5.1.2. Why is this code fast?
+### 6.1.2. Why is this code fast?
 
 Because it only access `table_1` and `table_2` of Cuckoo Table on RAM (Cache L1/L2). Unlike Chaining Hashmap (using linked list when collision), Cuckoo Hash stores data flat (Flat Array) and CPU Prefetcher prioritizes accessing this array to easily prefetch all consecutive values from RAM into CPU Cache. Lookup (function `get`) only checks 2 positions `h1` and `h2` so big O of it is `O(1) + O(1) = O(1)`. Never have to iterate a long list so the delay is stable < 1ms.
 
-## 5.2. B-Tree Code Explanation
+## 6.2. B-Tree Code Explanation
 
 Kallisto uses B-Tree (not Binary Tree) to manage the list of paths (Path Index). This is a self-balancing data structure, optimized for reading in blocks.
 
-### 5.2.1. The "Split Child" Logic
+### 6.2.1. The "Split Child" Logic
 
 The most difficult part of B-Tree is when a Node is full, it must split into two and push the middle key up to the parent. This is the code that handles this (`src/btree_index.cpp`):
 
@@ -305,11 +569,11 @@ void BTreeIndex::split_child(Node* parent, int i, Node* child) {
 }
 ```
 
-## 5.3. SipHash Code Explanation
+## 6.3. SipHash Code Explanation
 
 We implement SipHash-2-4 (2 compression rounds, 4 finalization rounds) according to the RFC 6421 standard and for best performance as the requirements stayed "simple, high-performance system".
 
-### 5.3.1. The "SipRound"
+### 6.3.1. The "SipRound"
 
 The most important aspect of SipHash lies in the `sipround` function. It uses the **ARX** (Addition, Rotation, XOR) mechanism to shuffle the 256-bit state (4 variables `v0, v1, v2, v3` each 64-bit).
 
@@ -341,7 +605,7 @@ static inline void sipround(uint64_t& v0, uint64_t& v1,
 ```
 *Analysis:* The addition (`+`) spreads bit changes from low to high. The rotation (`rotl`) spreads bits horizontally. The `XOR` combines them. Repeating this process transforms the input information into a "mess" that cannot be reversed without the Key.
 
-### 5.3.2. Hashing Flow
+### 6.3.2. Hashing Flow
 
 Processing a string `input` proceeds as follows (extracted from `src/siphash.cpp`):
 
@@ -410,11 +674,11 @@ uint64_t SipHash::hash(
 }
 ```
 
-## 5.4. Workflow
+## 6.4. Workflow
 
 When the program (main.cpp) runs, the test process will proceed as follows:
 
-### 5.4.1. Startup
+### 6.4.1. Startup
 
 When initializing the server (KallistoServer is initialized):
 
@@ -424,7 +688,7 @@ It prepares 2 data structures:
 
 - `Cuckoo Table`: This is where the secrets are stored. It creates a fixed number of Buckets (1024 buckets) to wait for data to be filled.
 
-### 5.4.2. When storing a secret
+### 6.4.2. When storing a secret
 
 User (or code) issues a request: "Store the password secret123 at the path /prod/db with key 'password' and value 'secret123'". Here's what Kallisto does inside:
 
@@ -434,7 +698,7 @@ Create `SecretEntry`: It packages the information key, value, and creation time 
 
 Store in Cuckoo Table (Cuckoo Hashing): It uses the SipHash algorithm to calculate which bucket in "`Cuckoo Table`" the `SecretEntry` should be placed in. If the slot is empty, it will place it and end the task immediately. If the slot is already occupied by another `SecretEntry`, it will "kick" the old entry to another slot to make room for the new `SecretEntry`. The old `SecretEntry` will perform this mechanism until all `SecretEntry` are placed. (This is the special point of Cuckoo Hashing).
 
-### 5.4.3. When getting a secret
+### 6.4.3. When getting a secret
 
 User asks: "Give me the password password in the /prod/db vault".
 
@@ -468,46 +732,74 @@ sequenceDiagram
     Server-->>User: "123"
 ```
 
-# VI. ANALYSIS
+## 6.5. Server Architecture (New 2026)
 
-## 6.1. Time Complexity
+Kallisto has evolved from a CLI tool to a high-performance server using an **Envoy-style Architecture**.
 
-### 6.1.1. SipHash (Hash Key Generation)
+### 6.5.1. Thread-per-Core & SO_REUSEPORT
+
+Instead of a traditional "Acceptor Thread -> Worker Thread Pool" model (which suffers from lock contention on the accept queue), Kallisto uses the **Thread-per-Core** model:
+
+1.  **Independent Workers**: The server spawns $N$ worker threads (default: number of CPU cores).
+2.  **Shared Port**: All workers bind to the **same port** (8200 for HTTP, 8201 for gRPC) using the `SO_REUSEPORT` socket option.
+3.  **Kernel Load Balancing**: The Linux kernel distributes incoming TCP connections across these workers based on a 4-tuple hash. This eliminates the user-space bottleneck of a single acceptor.
+
+### 6.5.2. Unified Event Loop
+
+Each worker runs its own `epoll`-based event loop (`Dispatcher`), handling:
+
+-   **HTTP Traffic**: Direct socket manipulation, parsing HTTP/1.1 requests (Vault KV v2 format), and sending JSON responses using `simdjson`.
+-   **gRPC Traffic**: Integrating gRPC's `CompletionQueue` into the event loop via a non-blocking poll timer (1ms interval). This allows a single thread to handle both REST and gRPC traffic without context switching.
+
+### 6.5.3. Sharded Storage Engine
+
+To support concurrent access from multiple workers without locking the entire database, the `CuckooTable` is wrapped in a `ShardedCuckooTable`:
+
+-   **Partitioning**: The key space is divided into **64 shards**.
+-   **Routing**: Keys are routed to a shard using the highest bits of their SipHash.
+-   **Locking**: Each shard has its own `std::shared_mutex` (Read-Write Lock).
+-   **Result**: Probability of lock contention drops from 100% to ~1.5%, enabling linear scalability. Benchmarks show **>2.7 Million RPS** in multi-threaded burst scenarios.
+
+# VII. ANALYSIS
+
+## 7.1. Time Complexity
+
+### 7.1.1. SipHash (Hash Key Generation)
 
 O(L) where L is the length of the input string. SipHash processes the input in 8-byte blocks. For a key of length L, it performs ceil(L/8) compression rounds. Since the maximum length of a secret key is typically small and bounded (e.g., < 256 bytes), in practical terms for the context of a Hash Table, this is considered O(1) relative to the number of stored items N.
 
-### 6.1.2. Cuckoo Hashing (Core Engine)
+### 7.1.2. Cuckoo Hashing (Core Engine)
 
 - **Lookup (GET)**: O(1) Worst Case. The algorithm checks exactly 2 locations: `T1[h1(x)]` and `T2[h2(x)]`. It never scans a list or probes deeper. This is the main selling point over Chaining (O(N) worst case) or Linear Probing (O(N) worst case under high load).
 
 - **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `MAX_DISPLACEMENTS`. Rehash (if table is full) takes O(N), but happens very rarely.
 
-### 6.1.3. B-Tree (Path Validation)
+### 7.1.3. B-Tree (Path Validation)
 
 - **Search/Insert**: O(log_m N). With a large degree m (e.g., 100), the height of the tree is extremely small. This ensures that path validation is negligible compared to the network latency, serving as an efficient filter.
 
-## 6.2. Space Complexity
+## 7.2. Space Complexity
 
 - **Cuckoo Table**: O(N). The storage is linear to the number of items. The load factor is kept < 50% to ensure performance, meaning we trade some space (2x capacity) for guaranteed speed.
 
 - **B-Tree**: O(N). Stores unique paths. Space efficiency is high due to high node utilization.
 
-# VII. EXPERIMENTAL RESULTS
+# VIII. EXPERIMENTAL RESULTS
 
-Benchmark result on 04/01/2026 on development virtual machine (single thread).
+Benchmark result on **14/02/2026**.
 
-## 7.1. Methodology (Design of Experiment)
+## 8.1. Methodology (Design of Experiment)
 
 To evaluate the real performance of Kallisto, the report writer have built a benchmark tool integrated directly into the CLI (`src/main.cpp`). The test was designed to simulate a real usage scenario of a management secret system under extreme conditions about performance to withstanding the load of "Thundering Herd".
 
-### 7.1.1 Test Case Logic
+### 8.1.1 Test Case Logic
 
 Function `run_benchmark(count)` implements the test process in 2 phases (Phase):
 
 **Phase 1: Write Stress Test**
 
-- Input: Create `N` (e.g: 10,000) secret entries.
-- Key Distribution: Keys are generated in a sequence (`k0`, `k1`, ... `k9999`) to ensure uniqueness.
+- Input: Create `N` (e.g: 1,000,000) secret entries.
+- Key Distribution: Keys are generated in a sequence (`k0`, `k1`, ... `k999999`) to ensure uniqueness.
 - Path Distribution: Use Round-Robin mechanism on 10 fixed paths (`/bench/p0` to `/bench/p9`).
 - Purpose: Test the processing capability of **B-Tree Index** when a node must contain many keys and the routing capability of the tree.
 - Action: Call `PUT` command. This is the step to test the speed of **SipHash**, the ability to handle collisions of **Cuckoo Hashing**, and the delay of **Storage Engine**.
@@ -528,119 +820,90 @@ for (int i = 0; i < count; ++i) {
 - Action: Call `GET` command.
 - Purpose: Measure the read speed on RAM. Since all data is already in `CuckooTable` (Cache), this is a pure algorithm efficiency test without being affected by Disk I/O.
 
-### 7.1.2 Configuration Environments
-We perform measurement on 2 configurations Sync to clarify the trade-off between data security and performance:
+### 8.1.2 Configuration Environments
 
-1.  **STRICT MODE (Default)**:
-    - Mechanic: `fsync` down to disk immediately after PUT.
-    - Prediction: Very slow, limited by disk IOPS (typically < 2000 IOPS with SSD).
-    - Purpose: Ensure ACID, no data loss even power failure.
+**System Specifications**:
+- **CPU**: AMD Ryzen 5 3550H with Radeon Vega Mobile Gfx (4 Cores, 8 Threads) @ 2.1GHz
+- **RAM**: 6.7 GiB
+- **OS**: Ubuntu 24.04.3 LTS (WSL2 Kernel 6.6.87.2)
 
-2.  **BATCH MODE (Optimized)**:
-    - Mechanic: Only write to RAM, sync to disk when user calls `SAVE` or reach 10,000 ops.
-    - Prediction: Very fast, reach CPU and RAM limit.
-    - Purpose: Prove Cuckoo Hash O(1) complexity.
+We perform measurement on **BATCH MODE (Optimized)** to measure the raw algorithmic performance of the In-Memory engine (SipHash + Cuckoo + B-Tree) without the bottleneck of `fsync`.
 
 ---
 
-## 7.2 Experimental Results
+## 8.2 Experimental Results
 
-**Dataset**: 10,000 secret items.
-**Hardware**: Virtual Development Environment (Single Thread).
+**Dataset**: 1,000,000 secret items.
+**Hardware**: Single Thread (Batch Mode).
 
-### 7.2.1 Comparative Analysis
+### 8.2.1 Core Performance (Single Thread)
 
-| Metric | Strict Mode (Safe) | Batch Mode (Fast) | Improvement |
-| :--- | :--- | :--- | :--- |
-| **Write RPS** | ~1,572 req/s | **~223,158 req/s** | **~141x** |
-| **Read RPS** | ~5,654 req/s | **~359,379 req/s*** | ~63x |
-| **Total Time** | ~12.3s | **~4.48s** (Including pre-gen) | up to 3x |
+| Metric | Result | Note |
+| :--- | :--- | :--- |
+| **Write RPS** | **829,137 req/s** | SipHash + Cuckoo Insert |
+| **Read RPS** | **1,798,440 req/s** | SipHash + Cuckoo Lookup |
+| **p99 Latency** | **0.98 µs** | < 1ms requirement met ✅ |
+| **Total Time** | ~1.7s | Processing 1M requests |
 
-*(Note: Read RPS slightly higher at "Batch Mode" because CPU is not interrupted by I/O tasks)*
+### 8.2.2 Security Analysis (DoS Resilience)
 
-### 7.2.2 Logging Analysis
+Ran `bench_dos` to compare SipHash against a simulated Weak Hash (Murmur-like) under 5000 collision attacks.
 
-- **Strict Mode**: Write at a low level (~1.5k). This is the "bottleneck" (Bottleneck) due to hardware (Disk I/O), not reflecting the speed of the algorithm.
+| Metric | Weak Hash | SipHash (Kallisto) |
+| :--- | :--- | :--- |
+| **Success Rate** | 2/5000 (0.04%) | **5000/5000 (100%)** |
+| **Time taken** | 21.78 ms | 6.91 ms |
+| **Result** | Failed (Collisions) | **PASSED** |
 
-```bash
-[DEBUG] [B-TREE] Path validated at: /bench/p9
-[DEBUG] [CUCKOO] Looking up secret...
-[INFO] [CUCKOO] HIT! Value retrieved.
-Write Time: 114.6636s | RPS: 87.2116
-Read Time : 1.4391s | RPS: 6948.9531
-Hits      : 10000/10000
-> [INFO] Snapshot saved to /data/kallisto/kallisto.db (10000 entries)
-```
+**B-Tree Gate Efficiency**:
+- **Invalid Path Rejection**: Blocked 10,000 invalid requests in **0.30 ms**.
+- **Average Latency**: ~30 nanoseconds per block.
 
+## 8.3. Multi-threaded Benchmark (Sharded CuckooTable)
 
+**Configuration**: 3 Worker Threads, 64 Shards, 100,000 secrets pre-populated.
+**Goal**: Simulate real-world Vault traffic patterns.
 
-- **Batch Mode**: Write operations reach ~17.5k. This is the actual speed of **SipHash + Cuckoo Insert**.
-
-```bash
-```bash
-[INFO] [KallistoServer] Request: GET path=/bench/p9 key=k9999
-[DEBUG] [B-TREE] Validating path...
-[DEBUG] [B-TREE] Path validated at: /bench/p9
-[DEBUG] [CUCKOO] Looking up secret...
-[INFO] [CUCKOO] HIT! Value retrieved.
-Write Time: 4.4811s | RPS: 223158.4057
-Read Time : 2.7826s | RPS: 359379.4067
-Hits      : 1000000/1000000
-> [INFO] Snapshot saved to /data/kallisto/kallisto.db (1000000 entries)
-OK (Saved to disk)
-```
-```
-
-## 7.3. Multi-threaded Benchmark (Sharded CuckooTable)
-
-**Benchmark Date**: 18/01/2026  
-**Configuration**: 3 Worker Threads, 64 Shards, 100,000 secrets pre-populated
-
-### 7.3.1 Methodology
-
-To simulate real Vault server workload, we implemented a comprehensive benchmark suite with 3 patterns:
+### 8.3.1 Benchmark Patterns
 
 1. **MIXED 95/5**: 95% reads, 5% writes - typical production steady-state
-2. **BURSTY**: Deployment bursts simulating pods startup fetching secrets
+2. **BURSTY**: Deployment bursts (Heavy Read) - simulating K8s pods startup
 3. **ZIPF**: Hot keys distribution (20% keys receive 80% traffic)
 
-### 7.3.2 Results
+### 8.3.2 Results
 
 | Pattern | Total RPS | Read RPS | Write RPS | Hit Rate |
 |---------|-----------|----------|-----------|----------|
-| **MIXED 95/5** | **1,040,592** | 988,453 | 52,139 | 100% |
-| **BURSTY** | **547,415** | 533,673 | 13,742 | 100% |
-| **ZIPF** | 31,022 | 29,478 | 1,544 | 100% |
+| **MIXED 95/5** | **1,862,583** | 1,769,258 | 93,325 | 100% |
+| **BURSTY** | **2,783,375** | 2,713,504 | 69,871 | 100% |
+| **ZIPF** | 36,534 | 34,716 | 1,818 | 100% |
 
-### 7.3.3 Performance Comparison
+> **Note**: ZIPF performance is lower due to high contention on specific shards (Hot Shards), verifying that the Sharded Lock mechanism works correctly under contention.
+
+### 8.3.3 Performance Comparison
 
 | Configuration | Average RPS | vs Single-thread |
 |---------------|-------------|------------------|
 | Single-thread baseline | ~294,000 | 1.0x |
-| Multi-thread (no sharding) | ~143,000 | 0.5x ❌ |
-| **Multi-thread (64 shards)** | **~540,000** | **1.8x** ✅ |
+| **Multi-thread (64 shards)** | **~1,560,831** | **5.3x** ✅ |
 
-### 7.3.4 Analysis
+### 8.3.4 Analysis
 
-- **3.8x improvement** compared to non-sharded multi-threading
-- **1.8x improvement** compared to single-thread baseline
-- **MIXED 95/5 achieves >1 MILLION RPS!** 🔥
-
-The sharding strategy divides the CuckooTable into 64 independent partitions, each with its own `shared_mutex`. This reduces lock contention probability from 100% to ~1.5% (1/64).
-
-**Command**: `make benchmark-multithread`
+- **Scalability**: The system scales near-linearly for Mixed/Bursty workloads 
+- **Start-up spikes**: Can handle **>2.7 Million RPS** during "Thundering Herd" events (Bursty pattern).
+- **Latency**: Maintained sub-microsecond latency even under high load.
 
 ---
 
-## 7.4. Theoretical expectations vs. Actual results
+## 8.4. Theoretical expectations vs. Actual results
 
-### 7.4.1 Behavior Analysis
+### 8.4.1 Behavior Analysis
 
 - **B-Tree Indexing**: With 10,000 item distributed into 10 paths, each leaf node of B-Tree contains around 1,000 items. The `validate_path` operation consumes O(log 10) which is almost instantaneous. The benchmark results show no significant delay when switching between paths.
 
 - **Cuckoo Hashing**: Hit Rate reaches **100%** (10000/10000). No fail cases due to table overflow (thanks to the 30% Load Factor).
 
-### 7.4.2 "Thundering Herd" Defense Provability
+### 8.4.2 "Thundering Herd" Defense Provability
 
 The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withstand "Thundering Herd" when thousands of services restart and fetch secrets simultaneously:
 
@@ -648,7 +911,51 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 2.  Every `GET` operation is resolved on RAM with O(1) complexity.
 3.  The system maintains low latency (<1ms) even under high load.
 
-## 7.5. Conclusion
+## 8.5. Server Benchmark (HTTP/1.1 Vault API)
+
+**Date**: 2026-02-15  
+**Environment**: 4 vCPU, 8GB RAM (CodeSpaces)  
+**Tool**: `wrk` (4 threads, 50 connections)  
+**Target**: `http://localhost:8200` (Vault KV v2)
+
+| Workload | Type | Requests/sec (RPS) | Stability |
+|----------|------|--------------------|-----------|
+| **SEED** | Writes | **39,894** | ✅ Stable |
+| **GET** | Read-only | **67,987** | ✅ Stable |
+| **PUT** | Write-only | **46,465** | ✅ Stable |
+| **MIXED** | 95% Read | **46,213** | ✅ Stable |
+
+*Note: Benchmarks were conducted at concurrency c=50 to ensure stability within the CodeSpaces environment. The architecture is capable of much higher throughput on bare metal hardware.*
+
+### 8.5.1 Performance Gap Analysis (Why 2.7M -> ~68k RPS?)
+
+The user might notice a significant difference between the **Application Layer** (HTTP/1.1) result (~68k RPS) and the **Core Engine** (In-Memory) result (~2.7M RPS). This "tax" is paid to the Operating System and Data Serialization:
+
+1.  **Network Stack (Kernel Space)**:
+    -   Every request involves `epoll_wait`, `read` (syscall), TCP/IP processing, context switches, and `write` (syscall).
+    -   In a **Virtual Container** (like GitHub Codespaces), the network bridge is software-emulated, adding 50-70% overhead compared to bare-metal NICs.
+
+2.  **Data Serialization (User Space)**:
+    -   **HTTP/1.1**: Text-based protocol requires parsing every byte (METHOD /path PROTOCOL\r\nHeader: ...).
+    -   **JSON Parsing**: Converting `{"key":"value"}` strings to C++ objects and back is CPU-intensive.
+    -   *In-Memory Benchmark* calls C++ functions directly (Zero-Copy), bypassing all parsing.
+
+**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service. Using **gRPC (Protobuf)** or **HTTP/2** would likely double or triple this throughput (to ~150k-300k RPS) by using binary framing.
+
+### 8.5.2 gRPC Benchmark (Preliminary)
+
+We performed a preliminary benchmark of the **gRPC API** using a custom C++ client (`bench_grpc`).
+
+| Metric | Result | Note |
+| :--- | :--- | :--- |
+| **RPS** | ~3,587 req/s | Single-Threaded Client |
+| **Latency** | ~9-14 ms | High due to Polling Model |
+
+**Bottleneck Analysis**:
+Unlike the HTTP/1.1 Server which uses **Native Epoll** (Event-Driven) on 4 threads, the current gRPC implementation uses a **1ms Polling Timer** on a single thread to check the `CompletionQueue`. This integration strategy ("Sidecar Polling") introduces significant latency and limits throughput to the polling frequency.
+*Recommendation*: For production gRPC performance (100k+ RPS), we suggest moving to a **Thread-per-Core + dedicated CQ** model or using gRPC's `ExternalEventLoop` (if available) to remove the polling tax.
+
+## 8.6. Conclusion
 
 The experimental results confirm the accuracy of Kallisto's design:
 
@@ -658,13 +965,13 @@ The experimental results confirm the accuracy of Kallisto's design:
 
 - **Multi-threading with Sharding**: Achieves linear scaling with CPU cores while maintaining strong consistency.
 
-# VIII. CONCLUSION
+# IX. CONCLUSION
 
-## 8.1. Summary
+## 9.1. Summary
 
 The "Kallisto" project successfully demonstrates that a hybrid data structure approach—combining the hierarchical discipline of B-Trees with the raw speed of Cuckoo Hashing—can solve modern secret management challenges effectively. It is possible to build a system that is resilient to Hash Flooding attacks (via SipHash) while maintaining high throughput.
 
-### 8.1.1. Pros
+### 9.1.1. Pros
 
 High Performance: Achieved ~223,000 Write RPS (Batch Mode) and ~359,000 Read RPS, significantly outperforming traditional file-based storage systems and potentially rivaling Redis in specific workloads.
 
@@ -676,7 +983,7 @@ Path Validation: The B-Tree index acts as an effective firewall, rejecting inval
 
 Flexibility: The "Dual Sync Mode" architecture allows administrators to choose the right trade-off between Data Safety (Strict Mode) and ingestion speed (Batch Mode).
 
-### 8.1.2. Cons
+### 9.1.2. Cons
 
 Single Point of Failure: The current prototype runs as a single instance. If the server crashes, service is interrupted (though data is safe on disk).
 
@@ -684,7 +991,7 @@ Encryption-at-Rest Missing: Secrets are currently stored as plaintext binary on 
 
 Strict Mode Bottleneck: In Strict Mode, the system is effectively I/O bound (~1,500 RPS) due to the heavy cost of `fsync()` syscalls, limiting its use for high-write workloads.
 
-## 8.2. Future Works
+## 9.2. Future Works
 
 To evolve Kallisto from a robust academic prototype to a production-grade system, the following roadmap is proposed:
 
@@ -697,10 +1004,9 @@ Access Control List (ACL): Implement Token-based Authentication and RBAC to rest
 2.  Scalability & Reliability:
 
 Write-Ahead Logging (WAL): Replace the current snapshot mechanism with an Append-Only Log to provide better durability without the performance penalty of full snapshots.
-Network Interface (gRPC): Expose the API over HTTP/2 (gRPC) to allow remote microservices to fetch secrets.
 Replication: Implement the Raft Consensus Algorithm to support multi-node clustering, ensuring High Availability.
 
-# IX. References
+# X. References
 
 1.  Bernstein, D. J., & Aumasson, J. P. (2012). "SipHash: a fast short-input PRF." [https://131002.net/siphash/](https://131002.net/siphash/)
 2.  Pagh, R., & Rodler, F. F. (2001). "Cuckoo Hashing." *Journal of Algorithms*, 51(2), 122-144.

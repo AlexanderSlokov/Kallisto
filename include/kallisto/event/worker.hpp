@@ -59,6 +59,17 @@ public:
      * Increment the request counter. Called after each request completes.
      */
     virtual void recordRequest() = 0;
+    
+    /**
+     * Bind a listening socket to this worker's epoll.
+     * Uses SO_REUSEPORT so multiple workers can bind the same port.
+     * Kernel distributes incoming connections across workers.
+     * 
+     * @param port Port number to listen on
+     * @param on_accept Callback invoked with the accepted client fd
+     */
+    virtual void bindListener(uint16_t port, 
+                              std::function<void(int client_fd)> on_accept) = 0;
 };
 
 using WorkerPtr = std::unique_ptr<Worker>;

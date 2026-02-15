@@ -1,0 +1,58 @@
+syntax = "proto3";
+package kallisto;
+
+option cc_generic_services = false;
+
+// SecretService - High-performance secret management API.
+// Designed for Envoy-style async processing with per-worker CompletionQueues.
+service SecretService {
+  // Retrieve a secret by path.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // Store a secret at the given path.
+  rpc Put(PutRequest) returns (PutResponse);
+
+  // Remove a secret by path.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // List secrets matching a prefix.
+  rpc List(ListRequest) returns (ListResponse);
+}
+
+message GetRequest {
+  string path = 1;  // e.g., "secret/data/myapp/db_password"
+}
+
+message GetResponse {
+  bytes value = 1;
+  int64 created_at = 2;   // Unix timestamp
+  int64 expires_at = 3;   // Unix timestamp, 0 = no expiry
+}
+
+message PutRequest {
+  string path = 1;
+  bytes value = 2;
+  int64 ttl_seconds = 3;  // 0 = no expiry
+}
+
+message PutResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message DeleteRequest {
+  string path = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+message ListRequest {
+  string prefix = 1;
+  int32 limit = 2;        // 0 = no limit
+}
+
+message ListResponse {
+  repeated string paths = 1;
+}

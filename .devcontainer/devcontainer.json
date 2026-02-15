@@ -14,18 +14,15 @@
         "formulahendry.code-runner"
       ],
       "settings": {
-		"terminal.integrated.defaultProfile.linux": "bash",
-		"C_Cpp.default.compilerPath": "/usr/bin/g++",
-		"code-runner.runInTerminal": true,
-		"editor.tabSize": 8,
-		"editor.insertSpaces": false,
-		"editor.rulers": [80]
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "C_Cpp.default.compilerPath": "/usr/bin/g++",
+        "code-runner.runInTerminal": true
       }
-    }	
+    }
   },
   "remoteUser": "vscode",
-  "postCreateCommand": "g++ --version && cmake --version && git --version",
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspaces,type=bind"
-  ]
+  "postCreateCommand": "sudo chown -R vscode:vscode /workspaces",
+  
+  // Script fix lỗi Antigravity (đã gộp thành 1 dòng)
+  "postStartCommand": "nohup bash -c 'SERVER_DIR=\"$HOME/.antigravity-server/bin\"; mkdir -p \"$SERVER_DIR\"; while true; do for dir in \"$SERVER_DIR\"/*-*; do if [ -d \"$dir\" ]; then dirname=$(basename \"$dir\"); commit=\"${dirname#*-}\"; symlink=\"$SERVER_DIR/$commit\"; if [ ! -e \"$symlink\" ]; then ln -s \"$dir\" \"$symlink\" 2>/dev/null; fi; fi; done; sleep 5; done' > /dev/null 2>&1 &"
 }
