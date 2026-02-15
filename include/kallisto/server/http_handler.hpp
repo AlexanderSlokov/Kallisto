@@ -92,7 +92,7 @@ private:
     
     event::Dispatcher& dispatcher_;
     std::shared_ptr<ShardedCuckooTable> storage_;
-    std::unordered_map<int, Connection> connections_;
+    std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 
 } // namespace server

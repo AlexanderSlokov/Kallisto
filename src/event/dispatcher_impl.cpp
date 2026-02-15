@@ -11,6 +11,7 @@
 #include <mutex>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <queue>
 #include <atomic>
 
@@ -147,10 +148,16 @@ public:
                 break;
             }
 
+            // === BEGIN EVENT PROCESSING (no map mutations allowed) ===
+            is_iterating_ = true;
+
             // Process events
             for (int i = 0; i < nfds; ++i) {
                 int fd = events[i].data.fd;
                 uint32_t event_mask = events[i].events;
+
+                // Skip fds that were removed by a callback earlier in this batch
+                if (removed_this_batch_.count(fd)) continue;
 
                 if (fd == wakeup_fd_) {
                     // Wakeup event - drain the eventfd and process posted callbacks
@@ -165,7 +172,23 @@ public:
                 }
             }
 
-            // Also run posted callbacks after each iteration (in case wakeup was missed)
+            is_iterating_ = false;
+            // === END EVENT PROCESSING ===
+
+            // Flush deferred removals (erase callbacks from map)
+            for (int fd : pending_removals_) {
+                fd_callbacks_.erase(fd);
+            }
+            pending_removals_.clear();
+            removed_this_batch_.clear();
+
+            // Flush deferred adds (move callbacks into map)
+            for (auto& [fd, cb] : pending_adds_) {
+                fd_callbacks_[fd] = std::move(cb);
+            }
+            pending_adds_.clear();
+
+            // Also run posted callbacks after each iteration
             runPostedCallbacks();
         }
 
@@ -202,6 +225,7 @@ public:
     }
 
     void addFd(int fd, uint32_t events, FdCb cb) override {
+        // Always register with epoll immediately (so events arrive next cycle)
         struct epoll_event ev{};
         ev.events = events;
         ev.data.fd = fd;
@@ -211,7 +235,12 @@ public:
             return;
         }
         
-        fd_callbacks_[fd] = std::move(cb);
+        if (is_iterating_) {
+            // Defer the map mutation — store callback for post-loop flush
+            pending_adds_.emplace_back(fd, std::move(cb));
+        } else {
+            fd_callbacks_[fd] = std::move(cb);
+        }
     }
 
     void modifyFd(int fd, uint32_t events) override {
@@ -225,8 +254,16 @@ public:
     }
 
     void removeFd(int fd) override {
+        // Always remove from epoll immediately (stop receiving events)
         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-        fd_callbacks_.erase(fd);
+        
+        if (is_iterating_) {
+            // Defer the map mutation — mark for post-loop cleanup
+            pending_removals_.push_back(fd);
+            removed_this_batch_.insert(fd);
+        } else {
+            fd_callbacks_.erase(fd);
+        }
     }
 
     bool isThreadSafe() const override {
@@ -282,6 +319,12 @@ private:
     
     // File descriptor callbacks
     std::unordered_map<int, FdCb> fd_callbacks_;
+    
+    // Deferred mutation state (prevents map modification during event iteration)
+    bool is_iterating_{false};
+    std::vector<int> pending_removals_;                      // fds to erase after loop
+    std::unordered_set<int> removed_this_batch_;             // fast lookup for skipping
+    std::vector<std::pair<int, FdCb>> pending_adds_;         // fds to insert after loop
     
     // Timer tracking (we store raw pointers; TimerImpl stored elsewhere)
     std::unordered_map<int, TimerImpl*> timers_;

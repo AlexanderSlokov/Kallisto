@@ -40,6 +40,9 @@ namespace kallisto {
 int main(int argc, char** argv) {
     using namespace kallisto;
     
+    // Ignore SIGPIPE — clients may disconnect during send()
+    signal(SIGPIPE, SIG_IGN);
+    
     // Default configuration
     uint16_t http_port = 8200;
     uint16_t grpc_port = 8201;

@@ -86,6 +86,10 @@ benchmark-multithread: build
 	@echo "\n--- Running Multi-threaded Benchmark (3 workers) ---\n"
 	@./$(BUILD_DIR)/bench_multithread
 
+benchmark-server: build-server
+	@echo "\n--- Running Server Load Test (wrk) ---\n"
+	@./bench/run_server_bench.sh $(THREADS) $(CONNECTIONS) $(DURATION)
+
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)

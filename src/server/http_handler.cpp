@@ -36,18 +36,23 @@ HttpHandler::~HttpHandler() {
 // ---------------------------------------------------------------------------
 
 void HttpHandler::onNewConnection(int client_fd) {
-    Connection conn;
-    conn.fd = client_fd;
+    auto conn = std::make_unique<Connection>();
+    conn->fd = client_fd;
     connections_[client_fd] = std::move(conn);
     
     // Register with epoll for reading
     dispatcher_.addFd(client_fd, EPOLLIN | EPOLLET, [this, client_fd](uint32_t events) {
+        // Guard: connection may have been closed by a prior event in this batch
+        if (connections_.find(client_fd) == connections_.end()) return;
+        
         if (events & (EPOLLERR | EPOLLHUP)) {
             closeConnection(client_fd);
             return;
         }
         if (events & EPOLLIN) {
             onReadable(client_fd);
+            // Check again — onReadable may have closed the connection
+            if (connections_.find(client_fd) == connections_.end()) return;
         }
         if (events & EPOLLOUT) {
             onWritable(client_fd);
@@ -56,9 +61,12 @@ void HttpHandler::onNewConnection(int client_fd) {
 }
 
 void HttpHandler::closeConnection(int fd) {
+    auto it = connections_.find(fd);
+    if (it == connections_.end()) return;  // Already closed
+    
     dispatcher_.removeFd(fd);
     close(fd);
-    connections_.erase(fd);
+    connections_.erase(it);
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +77,7 @@ void HttpHandler::onReadable(int fd) {
     auto it = connections_.find(fd);
     if (it == connections_.end()) return;
     
-    auto& conn = it->second;
+    auto& conn = *it->second;
     
     // Read available data
     char buf[4096];
@@ -93,9 +101,12 @@ void HttpHandler::onReadable(int fd) {
     if (req.valid) {
         handleRequest(conn, req);
         
+        // handleRequest → sendResponse → closeConnection may have
+        // destroyed conn (keep_alive=false). Check before accessing.
+        if (connections_.find(fd) == connections_.end()) return;
+        
         // Clear the consumed request from buffer
-        // (simplified: assumes one request per read for now)
-        conn.read_buffer.clear();
+        connections_[fd]->read_buffer.clear();
     }
     // else: incomplete request, wait for more data
 }
@@ -104,7 +115,7 @@ void HttpHandler::onWritable(int fd) {
     auto it = connections_.find(fd);
     if (it == connections_.end()) return;
     
-    auto& conn = it->second;
+    auto& conn = *it->second;
     
     if (conn.write_offset < conn.write_buffer.size()) {
         ssize_t n = send(fd, 
@@ -342,6 +353,10 @@ void HttpHandler::sendResponse(Connection& conn, int status_code,
                      conn.write_buffer.size(), MSG_NOSIGNAL);
     if (n > 0) {
         conn.write_offset = n;
+    } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        // Client disconnected before we could respond
+        closeConnection(conn.fd);
+        return;
     }
     
     if (conn.write_offset < conn.write_buffer.size()) {
