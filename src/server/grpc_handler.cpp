@@ -173,32 +173,14 @@ void GrpcHandler::pollLoop() {
     void* tag;
     bool ok;
     
-    // Block until event available or shutdown
+    // Direct Execution Model:
+    // Run gRPC logic directly on this thread. 
+    // Zero context switch. Zero eventfd overhead.
+    // Relies on ShardedCuckooTable's thread-safety.
+    
     while (cq_->Next(&tag, &ok)) {
-        // Start a new batch
-        std::vector<std::pair<void*, bool>> batch;
-        batch.reserve(64);
-        batch.emplace_back(tag, ok);
-
-        // Try to drain more events without blocking (up to 63 more)
-        while (batch.size() < 64) {
-            auto status = cq_->AsyncNext(&tag, &ok, gpr_time_0(GPR_CLOCK_REALTIME));
-            if (status == grpc::CompletionQueue::GOT_EVENT) {
-                batch.emplace_back(tag, ok);
-            } else {
-                // TIMEOUT (empty) or SHUTDOWN
-                break; 
-            }
-        }
-
-        // Flush batch to Dispatcher
-        // We move the vector into the lambda to avoid copying
-        dispatcher_.post([batch = std::move(batch)]() {
-            for (const auto& [t, o] : batch) {
-                auto* call = static_cast<CallData*>(t);
-                call->Proceed(o);
-            }
-        });
+        auto* call = static_cast<CallData*>(tag);
+        call->Proceed(ok);
     }
 }
 
