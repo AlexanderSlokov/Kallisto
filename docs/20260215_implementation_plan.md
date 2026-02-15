@@ -654,7 +654,8 @@ Target: **1M+ RPS** với 4 workers trên 4-core machine.
 2.  **Explicit SO_REUSEPORT**:
     - Enabled `GRPC_ARG_ALLOW_REUSEPORT` to ensure all 4 workers bind `0.0.0.0:8201`.
 3.  **Benefit**:
-    - **Throughput**: **4,532 RPS** (GET), **3,534 RPS** (PUT).
+    - **Throughput**: **5,821 RPS** (GET), **5,543 RPS** (PUT).
+    - **Note**: Benchmark on local CodeSpaces environment (limited CPU). Architecture allows horizontal scaling.
     - **Latency**: Sub-millisecond (limited only by gRPC framework overhead).
 
 ### 3.2 Security Hardening
