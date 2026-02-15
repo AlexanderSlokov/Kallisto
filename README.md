@@ -911,6 +911,22 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 2.  Every `GET` operation is resolved on RAM with O(1) complexity.
 3.  The system maintains low latency (<1ms) even under high load.
 
+## 8.2. Server Benchmark (HTTP/1.1 Vault API)
+
+**Date**: 2026-02-15  
+**Environment**: 4 vCPU, 8GB RAM (CodeSpaces)  
+**Tool**: `wrk` (4 threads, 50 connections)  
+**Target**: `http://localhost:8200` (Vault KV v2)
+
+| Workload | Type | Requests/sec (RPS) | Stability |
+|----------|------|--------------------|-----------|
+| **SEED** | Writes | **39,894** | ✅ Stable |
+| **GET** | Read-only | **67,987** | ✅ Stable |
+| **PUT** | Write-only | **46,465** | ✅ Stable |
+| **MIXED** | 95% Read | **46,213** | ✅ Stable |
+
+*Note: Benchmarks were conducted at concurrency c=50 to ensure stability within the CodeSpaces environment. The architecture is capable of much higher throughput on bare metal hardware.*
+
 ## 8.5. Conclusion
 
 The experimental results confirm the accuracy of Kallisto's design:
