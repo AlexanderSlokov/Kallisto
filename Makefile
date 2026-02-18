@@ -25,6 +25,8 @@ help:
 	@echo "  make benchmark-p99   - Run Latency Benchmark (p99)"
 	@echo "  make benchmark-dos   - Run Security Benchmark (DoS)"
 	@echo "  make benchmark-multithread - Run Multi-threaded Benchmark"
+	@echo "  make bench-http  - Run HTTP Benchmark (wrk) vs Redis"
+	@echo "  make bench-grpc  - Run gRPC Benchmark (ghz)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make logs        - View the server logs"
 
@@ -91,8 +93,11 @@ bench-ghz:
 	@./bench/run_ghz.sh
 
 bench-server:
-	@chmod +x bench/run_server_bench.sh
-	@./bench/run_server_bench.sh
+	@bash bench/run_server_bench.sh
+
+# Aliases
+bench-http: bench-server
+bench-grpc: bench-ghz
 
 clean:
 	@echo "Cleaning build artifacts..."
