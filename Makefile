@@ -5,6 +5,7 @@ BUILD_DIR = build
 TARGET = kallisto
 VCPKG_ROOT ?= /usr/local/vcpkg
 CMAKE_TOOLCHAIN = -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cmake
+DB_PATH ?= /data/kallisto/rocksdb
 
 .PHONY: all build build-server run clean help logs
 
@@ -12,30 +13,43 @@ all: build
 
 help:
 	@echo "Kallisto Commands:"
-	@echo "  make build   - Configure and compile the project (core only)"
-	@echo "  make build-server - Build with gRPC/HTTP server (requires vcpkg install)"
-	@echo "  make run     - Run the interactive CLI"
-	@echo "  make run-server  - Run the Kallisto server"
-	@echo "  make test    - Run Unit Tests"
-	@echo "  make test-listener - Run SO_REUSEPORT Listener Tests"
-	@echo "  make test-threading - Run Threading Unit Tests"
-	@echo "  make benchmark-strict - Run Benchmark (Strict Mode)"
-	@echo "  make benchmark-batch  - Run Benchmark (Fast/Batch Mode)"
-	@echo "  make benchmark-throughput - Run Throughput Benchmark"
-	@echo "  make benchmark-p99   - Run Latency Benchmark (p99)"
-	@echo "  make benchmark-dos   - Run Security Benchmark (DoS)"
-	@echo "  make benchmark-multithread - Run Multi-threaded Benchmark"
-	@echo "  make bench-http  - Run HTTP Benchmark (wrk) vs Redis"
-	@echo "  make bench-grpc  - Run gRPC Benchmark (ghz)"
-	@echo "  make clean       - Remove build artifacts"
-	@echo "  make logs        - View the server logs"
+	@echo ""
+	@echo "  Build:"
+	@echo "    make build          - Configure and compile (core only)"
+	@echo "    make build-server   - Build with gRPC/HTTP + RocksDB (requires vcpkg)"
+	@echo ""
+	@echo "  Run:"
+	@echo "    make run            - Run the interactive CLI"
+	@echo "    make run-server     - Run the Kallisto server (HTTP:8200, gRPC:8201)"
+	@echo ""
+	@echo "  Tests:"
+	@echo "    make test              - Run Unit Tests"
+	@echo "    make test-listener     - Run SO_REUSEPORT Listener Tests"
+	@echo "    make test-threading    - Run Threading Unit Tests"
+	@echo "    make test-persistence  - Run RocksDB Persistence Test (CRUD + restart)"
+	@echo ""
+	@echo "  Benchmarks (CLI):"
+	@echo "    make benchmark-strict      - Benchmark (Strict Mode)"
+	@echo "    make benchmark-batch       - Benchmark (Batch Mode, 1M ops)"
+	@echo "    make benchmark-p99         - Latency Benchmark (p99)"
+	@echo "    make benchmark-dos         - Security Benchmark (DoS)"
+	@echo "    make benchmark-multithread - Multi-threaded Benchmark"
+	@echo ""
+	@echo "  Benchmarks (Server — wrk/ghz):"
+	@echo "    make bench-server    - HTTP Benchmark (wrk) — GET/PUT/MIXED"
+	@echo "    make bench-http      - Alias for bench-server"
+	@echo "    make bench-grpc      - gRPC Benchmark (ghz)"
+	@echo ""
+	@echo "  Utilities:"
+	@echo "    make clean           - Remove build artifacts"
+	@echo "    make logs            - View the server logs"
 
 # Core build (without gRPC - always works)
 build:
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && cmake .. && make -j$(shell nproc)
 
-# Server build (with gRPC via vcpkg)
+# Server build (with gRPC + RocksDB via vcpkg)
 build-server:
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && cmake $(CMAKE_TOOLCHAIN) .. && make -j$(shell nproc)
@@ -45,8 +59,8 @@ run: build
 	@./$(BUILD_DIR)/$(TARGET)
 
 run-server: build-server
-	@echo "\n--- Starting Kallisto Server ---\n"
-	@./$(BUILD_DIR)/kallisto_server --workers=$(shell nproc)
+	@echo "\n--- Starting Kallisto Server (RocksDB: $(DB_PATH)) ---\n"
+	@./$(BUILD_DIR)/kallisto_server --workers=$(shell nproc) --db-path=$(DB_PATH)
 
 test: build
 	@echo "\n--- Running Unit Tests ---\n"
@@ -59,6 +73,10 @@ test-listener: build-server
 test-threading: build
 	@echo "\n--- Running Threading Unit Tests ---\n"
 	@./$(BUILD_DIR)/test_threading
+
+test-persistence: build-server
+	@echo "\n--- Running RocksDB Persistence Test ---\n"
+	@bash tests/test_persistence.sh
 
 benchmark-strict: build
 	@echo "\n--- Running Benchmark (5000 Ops - STRICT MODE) ---\n"

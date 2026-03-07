@@ -18,6 +18,7 @@ add_library(kallisto_lib
     src/cuckoo_table.cpp
     src/btree_index.cpp
     src/storage_engine.cpp
+    src/rocksdb_storage.cpp
     src/kallisto.cpp
     helpers/logger.cpp
     # Threading infrastructure (Phase 1.1)
@@ -32,6 +33,16 @@ add_library(kallisto_lib
 
 # Link pthread for threading support
 target_link_libraries(kallisto_lib PRIVATE pthread)
+
+# RocksDB (persistence layer)
+find_package(RocksDB CONFIG)
+if(RocksDB_FOUND)
+    target_link_libraries(kallisto_lib PUBLIC RocksDB::rocksdb)
+    target_compile_definitions(kallisto_lib PUBLIC KALLISTO_HAS_ROCKSDB=1)
+    message(STATUS "RocksDB found - persistence layer enabled")
+else()
+    message(STATUS "RocksDB not found - persistence layer disabled")
+endif()
 
 # Main Executable
 add_executable(kallisto src/main.cpp)
@@ -134,14 +145,16 @@ if(Protobuf_FOUND AND gRPC_FOUND)
     add_executable(test_listener tests/test_listener.cpp)
     target_link_libraries(test_listener kallisto_server_lib)
 
-    # gRPC Benchmark Client
-    add_executable(bench_grpc bench/bench_grpc_client.cpp)
-    target_link_libraries(bench_grpc
-        kallisto_lib
-        kallisto_proto_lib
-        gRPC::grpc++
-        protobuf::libprotobuf
-    )
+    # gRPC Benchmark Client (optional — file may not exist yet)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bench/bench_grpc_client.cpp")
+        add_executable(bench_grpc bench/bench_grpc_client.cpp)
+        target_link_libraries(bench_grpc
+            kallisto_lib
+            kallisto_proto_lib
+            gRPC::grpc++
+            protobuf::libprotobuf
+        )
+    endif()
 
 else()
     message(STATUS "gRPC/Protobuf not found - skipping server components (run vcpkg install)")

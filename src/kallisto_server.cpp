@@ -12,6 +12,7 @@
 #include "kallisto/server/grpc_handler.hpp"
 #include "kallisto/server/http_handler.hpp"
 #include "kallisto/sharded_cuckoo_table.hpp"
+#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 #include <csignal>
@@ -61,11 +62,14 @@ int main(int argc, char** argv) {
             grpc_port = static_cast<uint16_t>(std::stoi(arg.substr(12)));
         } else if (arg.find("--workers=") == 0) {
             num_workers = std::stoul(arg.substr(10));
+        } else if (arg.find("--db-path=") == 0) {
+            // Custom RocksDB path
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: kallisto_server [options]\n"
                       << "  --http-port=PORT   HTTP port (default: 8200)\n"
                       << "  --grpc-port=PORT   gRPC port (default: 8201)\n"
                       << "  --workers=N        Number of worker threads (default: CPU cores)\n"
+                      << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
                       << std::endl;
             return 0;
         }
@@ -86,6 +90,23 @@ int main(int argc, char** argv) {
     auto storage = std::make_shared<ShardedCuckooTable>(1024 * 1024);
     info("[SERVER] ShardedCuckooTable created (1M buckets, 64 shards)");
     
+    // Create RocksDB persistence layer
+    // Parse --db-path if provided
+    std::string db_path = "/data/kallisto/rocksdb";
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg.find("--db-path=") == 0) {
+            db_path = arg.substr(10);
+        }
+    }
+    auto persistence = std::make_shared<RocksDBStorage>(db_path);
+    if (persistence->is_open()) {
+        info("[SERVER] RocksDB persistence layer opened at: " + db_path);
+    } else {
+        warn("[SERVER] RocksDB persistence unavailable — running in-memory only");
+        persistence = nullptr;  // Handlers check for nullptr
+    }
+    
     // Create worker pool
     auto pool = createWorkerPool(num_workers);
     
@@ -102,7 +123,7 @@ int main(int argc, char** argv) {
             
             // Each worker binds HTTP port (SO_REUSEPORT)
             auto http_handler = std::make_shared<server::HttpHandler>(
-                worker.dispatcher(), storage);
+                worker.dispatcher(), storage, persistence);
             worker.bindListener(http_port, [http_handler](int fd) {
                 http_handler->onNewConnection(fd);
             });
@@ -112,7 +133,7 @@ int main(int argc, char** argv) {
             // Note: gRPC manages its own listening socket internally,
             //       but we use SO_REUSEPORT address for the builder
             auto grpc_handler = std::make_shared<server::GrpcHandler>(
-                worker.dispatcher(), storage);
+                worker.dispatcher(), storage, persistence);
             grpc_handler->initialize(grpc_port);
             grpc_handlers.push_back(grpc_handler);
         }
@@ -140,6 +161,12 @@ int main(int argc, char** argv) {
     
     // Stop worker pool (stops dispatchers, joins threads)
     pool->stop();
+    
+    // Flush RocksDB on shutdown to ensure all data is persisted
+    if (persistence) {
+        persistence->flush();
+        info("[SERVER] RocksDB flushed.");
+    }
     
     info("[SERVER] Shutdown complete.");
     return 0;
