@@ -8,37 +8,38 @@ The contributions of third parties are acknowledged, and this project builds upo
 
 # I. INTRODUCTION
 ## 1.1. Context
-In these modern days, information security is of utmost importance. In particular, managing secrets (like API keys, passwords, tokens, etc.) is one of the most critical requirements of a security system. However, encrypting and storing secrets securely does not mean that the system can serve a large number of applications - services that read and write a large number of secrets in real-time. Managing secrets can cause performance and security issues if not handled correctly. A classic example is when a Kubernetes cluster restarts, thousands of containers in hundreds of pods will be scheduled, spin-up, crash-loop-back-off, request secrets... at the same time. Each container needs to be served secrets to start then the instances of the secret management system will be frozen due to flooding.
 
-What about using Redis and Hashicorp Vault? Redis is fast, and Vault is a Encrypt-as-a-service by default. But they have their own issues:
+Managing secrets (API keys, passwords, tokens, etc.) is one of the most critical requirements of a security system. However, encrypting and storing secrets securely does not mean that the system can serve at high throughput. A classic example is when a Kubernetes cluster restarts, thousands of containers in hundreds of pods will be scheduled, spin-up, crash-loop-back-off and request secrets at the same time. Each container needs to be served secrets to start, hence making the secret management system frozen due to flooding.
 
-Redis can serve a large number of requests but it is not secure enough. Infact, Redis is not designed for this purpose, it is a high performance key-value store but "flat" (which is, does not understand what is a "secret path". It just see "/prod/db/secret" as a string.) If we try to use Redis to store secrets at "/prod/db/secret", we will have to validate that "/prod/db/secret" of the secret before reading it, and Redis have to scan all the text values to find the correct text value we want. 
+What about using `Redis` and `Hashicorp Vault`? Redis is fast, and Vault is an Encrypt-as-a-service. But they have their own issues:
 
-Hashicorp Vault, in the other hand, can not withstand the load of thousands of containers requesting secrets at the same time. Even HashiCorp also warns that if you need High Throughput then don't throw everything into one Vault cluster, but use Performance Standby or scale horizontally, which is obviously too expensive.
+Redis can serve a large number of requests but it is not secure enough. In fact, Redis is not designed for caching secrets, it is a high performance key-value store but "flat" (which is, does not understand what is a "secret path", It just sees "/prod/db/secret" as a string.) If we try to use Redis to store secrets at path "/prod/db/secret" just like Vault does, we will have to validate the path before reading it, and Redis has to scan through everything to find the correct one. 
+
+Hashicorp Vault, on the other hand, can not withstand the load of thousands of containers requesting secrets at the same time. HashiCorp also warns that if you need High Throughput then don't throw everything into one Vault cluster, but use Performance Standby or scale horizontally, which is obviously too expensive.
 
 ## 1.2. Problem Statement
 
-How to reach the pure performance speed of Redis but still keep the strict control (Structure/ Path Validation) of Vault?
+What does a service look like, to reach the performance speed of Redis but still keep the strict control and security of Vault? 
 
-Why do traditional hash tables (Chain, Linear Probing) fear DoS Hash Flooding attacks? Because thay are vunerable to hash collisions, and hacker will knowleges about them can create a large number of keys to cause hash collisions.
+Why do traditional hash tables (Chain, Linear Probing) fear DoS Hash Flooding attacks? Because they are vulnerable to hash collisions, a hacker with knowledge about them can create a large number of keys to cause hash collisions. Why does the CPU consume time processing collisions? Because when there is a collision, the CPU must execute expensive resolution mechanisms: Chaining (Traverse linked list). 
 
-Why does CPU consume time processing collisions? Because when there is a collision, CPU must execute expensive resolution mechanisms: Chaining (Traverse linked list). If using linked list, CPU must compare the new key with each old key in the list to check for duplicates. With N colliding elements, inserting N elements will take O(N^2) total CPU time. Open Addressing (Find empty position): CPU must perform "probes" (linear or square probing) to find the next empty slot. In a flooding attack, almost every CPU slot is occupied, leading to thousands of useless comparison calculations for each request. 
+If using a linked list, the CPU must compare the new key with each old key in the list to check for duplicates. With N colliding elements, inserting N elements will take O(N^2) total CPU time. 
+
+Open Addressing (Find empty position): CPU must perform "probes" (linear or square probing) to find the next empty slot. In a flooding attack, almost every CPU slot is occupied, leading to thousands of useless comparison calculations for each request. 
 
 ## 1.3. Proposed Solution
 
-The report writer suggest the following solution:
+So, I suggest the following solution:
 
 **SipHash**: To make the hash function unpredictable, prevent hackers from creating collisions.
 
 **Cuckoo Hashing**: To reach O(1) worst-case for Read, prevent the Thundering Herd problem.
 
-**B-Tree**: To act as a "gate", remove invalid path request with O(log N) requests before they reach the hash table.
+**B-Tree**: To act as a "gate", remove invalid path requests with O(log N) requests before they reach the hash table.
 
 **Hybrid technical architecture**: Combine the hierarchical management of Path Validation with the speed of Cache on RAM.
 
-This code base, developing for the final project of Data Structure and Algorithm subject, is named "Kallisto" as a codename for documentation and recognition.
-
-But before we go into further details of the architecture, let's make clear about secret encrypt/decrypt and encrypt-as-rest: this research paper will not focus in these above requirements, neither the source code will be implemented, because they are out-of-scopes for Data Structure and Algorithm subject. But they will be on development plan in the future.
+This code base is named "Kallisto" as a codename for documentation and recognition. 
 
 ## 1.4. Objectives
 
@@ -426,8 +427,8 @@ A secret management system does not only store secrets in RAM but also needs to 
 ### 4.3.4. Flow Insert Path
 
 Example 1, if `PUT /prod/payment`:
-1.  System runs from root.
-2.  If root is full, call `split_child` to split root -> Tree height increases by 1.
+1.  The system runs from the root.
+2.  If the root is full, call `split_child` to split root -> Tree height increases by 1.
 3.  Find the appropriate child branch (greater than/less than key).
 4.  Recursively down (Insert Non-Full).
 
@@ -526,7 +527,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 
 ### 6.1.2. Why is this code fast?
 
-Because it only access `table_1` and `table_2` of Cuckoo Table on RAM (Cache L1/L2). Unlike Chaining Hashmap (using linked list when collision), Cuckoo Hash stores data flat (Flat Array) and CPU Prefetcher prioritizes accessing this array to easily prefetch all consecutive values from RAM into CPU Cache. Lookup (function `get`) only checks 2 positions `h1` and `h2` so big O of it is `O(1) + O(1) = O(1)`. Never have to iterate a long list so the delay is stable < 1ms.
+Because it only accesses `table_1` and `table_2` of Cuckoo Table on RAM (Cache L1/L2). Unlike Chaining Hashmap (using linked list when collision), Cuckoo Hash stores data flat (Flat Array) and CPU Prefetcher prioritizes accessing this array to easily prefetch all consecutive values from RAM into CPU Cache. Lookup (function `get`) only checks 2 positions `h1` and `h2` so the big O of it is `O(1) + O(1) = O(1)`. Never have to iterate a long list so the delay is stable < 1ms.
 
 ## 6.2. B-Tree Code Explanation
 
@@ -842,7 +843,7 @@ We perform measurement on **BATCH MODE (Optimized)** to measure the raw algorith
 | :--- | :--- | :--- |
 | **Write RPS** | **829,137 req/s** | SipHash + Cuckoo Insert |
 | **Read RPS** | **1,798,440 req/s** | SipHash + Cuckoo Lookup |
-| **p99 Latency** | **0.98 µs** | < 1ms requirement met ✅ |
+| **p99 Latency** | **0.98 µs** | < 1ms requirement met |
 | **Total Time** | ~1.7s | Processing 1M requests |
 
 ### 8.2.2 Security Analysis (DoS Resilience)
@@ -920,10 +921,10 @@ The result of Read RPS (~6,400 req/s) proves the capability of Kallisto to withs
 
 | Workload | Type | Requests/sec (RPS) | Stability |
 |----------|------|--------------------|-----------|
-| **SEED** | Writes | **39,894** | ✅ Stable |
-| **GET** | Read-only | **67,987** | ✅ Stable |
-| **PUT** | Write-only | **46,465** | ✅ Stable |
-| **MIXED** | 95% Read | **46,213** | ✅ Stable |
+| **SEED** | Writes | **39,894** |  Stable |
+| **GET** | Read-only | **67,987** |  Stable |
+| **PUT** | Write-only | **46,465** | Stable |
+| **MIXED** | 95% Read | **46,213** | Stable |
 
 *Note: Benchmarks were conducted at concurrency c=50 to ensure stability within the CodeSpaces environment. The architecture is capable of much higher throughput on bare metal hardware.*
 
