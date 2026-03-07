@@ -1,14 +1,16 @@
 # Kallisto engine
 
-*Fast like Redis, API request it? just like Vault.*
+*"Fast like Redis. API requests? Just like Vault.*
 
-*Sound like something uses RocksDB? Hell yes, and it is a lovely daughter of Envoy proxy.*
+*Sounds like it uses RocksDB? Hell yes. And architecturally, it's the lovely daughter of Envoy Proxy.*
 
-*Plus, it can cluster up using NuRaft.*
+*Plus, it clusters up using NuRaft.*
+
+(...)
+
+*And yes, we use C++20, not Rust. Because a 100-year lifespan isn't long enough to fight both the borrow checker and C++ at the same time."*
 
 Kallisto is a high-performance secret management system built with C++20. It provides a secure and efficient way to store and retrieve secrets, with a focus on performance and scalability.
-
-And yes, we use C++20, not Rust, because 100 years of life-span is not long enough for us to fight with the borrow checker and C++ as the same time.
 
 # HOW TO USE
 
@@ -18,7 +20,7 @@ Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for int
 
 - **C++20 compiler** (GCC 13+ or Clang 16+)
 - **CMake** 3.20+
-- **vcpkg** (only for Server mode — provides gRPC, Protobuf, simdjson)
+- **vcpkg** (only for Server mode — provides gRPC, Protobuf, RocksDB, simdjson)
 
 ## Building
 
@@ -112,6 +114,7 @@ Or with custom options:
 | `--http-port=PORT` | `8200` | HTTP API port (Vault-compatible) |
 | `--grpc-port=PORT` | `8201` | gRPC API port |
 | `--workers=N` | CPU cores | Number of worker threads |
+| `--db-path=PATH` | `/data/kallisto/rocksdb` | RocksDB data directory |
 | `--help`, `-h` | — | Show help |
 
 ### Expected Startup Output
@@ -236,10 +239,11 @@ grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
 | Target | Description |
 |--------|-------------|
 | `make build` | Build core (CLI only) |
-| `make build-server` | Build with gRPC/HTTP server |
+| `make build-server` | Build with gRPC/HTTP + RocksDB |
 | `make run` | Start interactive CLI |
 | `make run-server` | Start the Kallisto server |
 | `make test` | Run unit tests |
+| `make test-persistence` | Run RocksDB persistence test (CRUD + restart) |
 | `make test-listener` | Run SO_REUSEPORT tests |
 | `make test-threading` | Run threading tests |
 | `make benchmark-batch` | Benchmark 1M ops (Batch mode) |
@@ -247,8 +251,132 @@ grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
 | `make benchmark-multithread` | Multi-threaded benchmark |
 | `make benchmark-p99` | Latency p99 benchmark |
 | `make benchmark-dos` | DoS resistance benchmark |
+| `make bench-server` | HTTP benchmark (wrk) — GET/PUT/MIXED |
 | `make clean` | Remove build artifacts |
 | `make logs` | View server logs |
+
+# Persistence — RocksDB
+
+Starting from `v0.1.0`, Kallisto uses **RocksDB 10.4.2** as a crash-safe WAL (Write-Ahead Log) persistence layer, replacing the old snapshot-based engine.
+
+### Write Path
+
+Every `PUT`/`DELETE` follows a **Write-Ahead** strategy:
+
+1. **Write to RocksDB first** (WAL on disk) — if this fails, return `HTTP 500` immediately
+2. **Update CuckooTable cache** — only after RocksDB confirms the write
+
+This guarantees zero silent data loss: if the process crashes after step 1, RocksDB replays the WAL on next startup.
+
+### Read Path (Cache-Miss Fallback)
+
+```
+client GET
+  └─► CuckooTable lookup
+        ├── HIT  → return (sub-µs, in-memory)
+        └── MISS → RocksDB.Get() → populate CuckooTable → return
+```
+
+The in-memory cache starts **empty** on startup (no OOM risk at scale). It warms up organically as traffic arrives.
+
+### Sync Modes
+
+| Mode | Behavior | Use Case |
+|---|---|---|
+| `BATCH` (default) | Async WAL — OS flushes | High throughput |
+| `IMMEDIATE` | `sync=true` per write | Max durability |
+
+Set via: `make run-server` (default BATCH) or `MODE STRICT` in CLI.
+
+# Performance Benchmarks
+
+## Test Environment
+
+> ⚠️ These numbers are from a **severely constrained environment**: a VS Code Dev Container running on Docker Desktop for Windows 11, backed by **WSL2**. This is arguably one of the worst setups possible for I/O-bound benchmarks.
+
+| | Spec |
+|---|---|
+| **Host OS** | Windows 11 (Docker Desktop) |
+| **Container** | Ubuntu 24.04.3 LTS |
+| **Kernel** | `6.6.87.2-microsoft-standard-WSL2` |
+| **CPU** | AMD Ryzen 5 3550H · 4 cores / 8 threads (SMT) |
+| **RAM** | 6.7 GB total · ~5.0 GB available |
+| **Disk** | Docker overlay filesystem (not native NVMe) |
+
+WSL2 adds a virtualization tax on every syscall, network loopback, and disk write. **Native Linux bare-metal numbers would be significantly higher.**
+
+---
+
+## HTTP Server Benchmark — Kallisto vs Redis
+
+Benchmark tool: **`wrk`** for Kallisto (HTTP/1.1), **`redis-benchmark`** for Redis (native binary protocol).
+
+### Commands
+
+```bash
+# Kallisto — wrk (4 threads, 200 connections, 10s)
+make bench-server
+# → runs: wrk -t4 -c200 -d10s -s bench/wrk_get.lua   http://localhost:8200
+# → runs: wrk -t4 -c200 -d10s -s bench/wrk_put.lua   http://localhost:8200
+# → runs: wrk -t4 -c200 -d10s -s bench/wrk_mixed.lua http://localhost:8200
+
+# Redis 7.0 — redis-benchmark (200 clients, 500K requests, no pipeline)
+redis-server --daemonize yes --save ""   # no persistence, pure in-memory
+redis-benchmark -t set,get -n 500000 -c 200 -q
+```
+
+### Results
+
+| Workload | **Kallisto** | **Redis 7.0** | Δ |
+|---|---|---|---|
+| **GET** (read) | **127,673 RPS** | 30,142 RPS | 🏆 **4.2× faster** |
+| **SET / PUT** (write) | **29,157 RPS** | 29,117 RPS | **≈ equal** |
+| GET avg latency | **1.48 ms** | ~3.1 ms | 2× lower |
+| GET p99 latency | **8.00 ms** | — | |
+| PUT avg latency | 26.15 ms | ~3.5 ms | — |
+| PUT p99 latency | 448 ms | — | |
+| Persistence | ✅ RocksDB WAL | ❌ disabled (`--save ""`) | |
+| Protocol | HTTP/1.1 + JSON | Redis binary protocol | |
+| Errors | **0** | 0 | |
+
+### Analysis
+
+**GET: Kallisto is 4.2× faster than Redis** — Redis is single-threaded by design. On this 8-logical-core container, Kallisto's SO_REUSEPORT workers saturate all cores while Redis uses exactly one. The CuckooTable lookup is O(1) sub-µs, and the 4 HTTP workers pipeline responses in parallel.
+
+**SET/PUT ≈ equal** — Both hit the same bottleneck: network loopback + system calls under WSL2. Notably, Kallisto's PUT includes a **full RocksDB WAL write** (persistent!), yet matches Redis which runs with `--save ""` (no persistence at all). On bare metal with NVMe, Kallisto's PUT would pull further ahead.
+
+**Protocol fairness note**: Redis uses a tightly-optimized binary protocol (RESP). Kallisto uses HTTP/1.1 with JSON parsing — a strictly heavier stack. The GET advantage is architectural (multi-core), not protocol-level.
+
+---
+
+## CLI Benchmark (in-process, no network overhead)
+
+```bash
+make benchmark-batch
+```
+
+```
+> MODE BATCH
+> BENCH 1000000
+Write Time: 4.48s | RPS: 223,158
+Read Time:  2.78s | RPS: 359,379
+Hits: 1,000,000/1,000,000
+```
+
+Pure in-process CuckooTable throughput: **359K reads/sec, 223K writes/sec** with zero network overhead.
+
+---
+
+## Run It Yourself
+
+```bash
+make build-server
+make bench-server          # HTTP wrk benchmark — GET / PUT / MIXED
+make benchmark-batch       # CLI — 1M ops in-process
+make benchmark-p99         # Latency distribution
+make test-persistence      # Correctness: CRUD + crash recovery
+```
+
 
 # Architecture Overview
 

@@ -1,4 +1,5 @@
 #include "kallisto/server/http_handler.hpp"
+#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 #include <sys/epoll.h>
@@ -17,9 +18,11 @@ namespace server {
 // ---------------------------------------------------------------------------
 
 HttpHandler::HttpHandler(event::Dispatcher& dispatcher,
-                         std::shared_ptr<ShardedCuckooTable> storage)
+                         std::shared_ptr<ShardedCuckooTable> storage,
+                         std::shared_ptr<RocksDBStorage> persistence)
     : dispatcher_(dispatcher)
-    , storage_(std::move(storage)) {
+    , storage_(std::move(storage))
+    , persistence_(std::move(persistence)) {
 }
 
 HttpHandler::~HttpHandler() {
@@ -264,7 +267,22 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 // ---------------------------------------------------------------------------
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
+    // Step 1: Try CuckooTable (hot cache, sub-µs)
     auto result = storage_->lookup(path);
+    
+    // Step 2: Cache miss → fallback to RocksDB (disk)
+    if (!result.has_value() && persistence_) {
+        auto disk_result = persistence_->get(path);
+        if (disk_result.has_value()) {
+            // Populate back into CuckooTable for future hits
+            // ShardedCuckooTable::insert() is thread-safe (shared_mutex per shard)
+            // Cache Stampede note: RocksDB block cache absorbs concurrent misses;
+            // multiple threads may insert the same key — CuckooTable handles this
+            // as an idempotent update (same key = overwrite, not duplicate)
+            storage_->insert(path, disk_result.value());
+            result = std::move(disk_result);
+        }
+    }
     
     if (!result.has_value()) {
         sendError(conn, 404, "Secret not found");
@@ -308,24 +326,38 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
     entry.value = value;
     entry.created_at = std::chrono::system_clock::now();
     
+    // Write-Ahead mindset: RocksDB FIRST, then CuckooTable
+    // If RocksDB fails (disk full, stall) → 500 immediately, don't touch cache
+    if (persistence_) {
+        bool persisted = persistence_->put(path, entry);
+        if (!persisted) {
+            sendError(conn, 500, "Failed to persist secret to disk");
+            return;
+        }
+    }
+    
     bool ok = storage_->insert(path, entry);
     
     if (ok) {
         sendResponse(conn, 200, "application/json", 
                      "{\"data\":{\"created\":true}}");
     } else {
-        sendError(conn, 500, "Failed to store secret");
+        sendError(conn, 500, "Failed to store secret in cache");
     }
 }
 
 void HttpHandler::handleDeleteSecret(Connection& conn, const std::string& path) {
-    bool ok = storage_->remove(path);
-    
-    if (ok) {
-        sendResponse(conn, 204, "", "");
-    } else {
-        sendError(conn, 404, "Secret not found");
+    // RocksDB FIRST: ensure deletion is persisted before removing from cache
+    if (persistence_) {
+        bool persisted = persistence_->del(path);
+        if (!persisted) {
+            sendError(conn, 500, "Failed to delete secret from disk");
+            return;
+        }
     }
+    
+    storage_->remove(path);
+    sendResponse(conn, 204, "", "");
 }
 
 // ---------------------------------------------------------------------------
