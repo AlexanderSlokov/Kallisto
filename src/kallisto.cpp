@@ -1,4 +1,5 @@
 #include "kallisto/kallisto.hpp"
+#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 namespace kallisto {
@@ -6,31 +7,51 @@ namespace kallisto {
 KallistoServer::KallistoServer() {
     // Phase 1.2: Use ShardedCuckooTable (64 partitions) for thread-safe access
     // Capacity: 2M items across 64 shards (~31K per shard)
-    // This enables >1M RPS in multi-threaded scenarios
     storage = std::make_unique<ShardedCuckooTable>(2000000);
     
     path_index = std::make_unique<BTreeIndex>(5);
+    
+    // RocksDB persistence (replaces old StorageEngine snapshot)
+    // CuckooTable starts EMPTY — warms up via cache-miss fallback
+    rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
+    if (!rocksdb_persistence->is_open()) {
+        LOG_WARN("[CLI] RocksDB unavailable — running in-memory only");
+        rocksdb_persistence.reset();
+    }
+    
+    // Legacy snapshot recovery (backward compatibility)
     persistence = std::make_unique<StorageEngine>();
-
-    // Recover state from disk at /data/kallisto/
     auto secrets = persistence->load_snapshot();
     if (!secrets.empty()) {
+        LOG_INFO("[CLI] Migrating " + std::to_string(secrets.size()) + " entries from snapshot to RocksDB...");
         rebuild_indices(secrets);
+        // Migrate to RocksDB
+        if (rocksdb_persistence) {
+            for (const auto& entry : secrets) {
+                std::string full_key = build_full_key(entry.path, entry.key);
+                rocksdb_persistence->put(full_key, entry);
+            }
+            LOG_INFO("[CLI] Migration complete.");
+        }
     }
 }
 
 KallistoServer::~KallistoServer() {
-    // Ensure data is saved on exit
-    force_save();
+    // Flush RocksDB on exit
+    if (rocksdb_persistence) {
+        rocksdb_persistence->flush();
+    }
 }
 
 void KallistoServer::set_sync_mode(SyncMode mode) {
     sync_mode = mode;
     if (sync_mode == SyncMode::IMMEDIATE) {
         LOG_INFO("[CONFIG] Switched to IMMEDIATE Sync Mode (Safe).");
-        force_save(); // Flush any pending ops immediately
+        if (rocksdb_persistence) rocksdb_persistence->set_sync(true);
+        force_save();
     } else {
         LOG_INFO("[CONFIG] Switched to BATCH Sync Mode (Performance).");
+        if (rocksdb_persistence) rocksdb_persistence->set_sync(false);
     }
 }
 
@@ -39,8 +60,6 @@ std::string KallistoServer::build_full_key(const std::string& path, const std::s
 }
 
 bool KallistoServer::put_secret(const std::string& path, const std::string& key, const std::string& value) {
-    // debug("Action: PUT path=" + path + " key=" + key);
-    
     // 1. Ensure path exists in path index
     path_index->insert_path(path);
     
@@ -52,34 +71,45 @@ bool KallistoServer::put_secret(const std::string& path, const std::string& key,
     entry.created_at = std::chrono::system_clock::now();
     entry.ttl = 3600; // Default TTL
 
-    // 3. Store in Cuckoo Table
+    // 3. RocksDB FIRST (Write-Ahead mindset)
     std::string full_key = build_full_key(path, key);
-    bool result = storage->insert(full_key, entry);
-
-    // 4. Persistence
-    if (result) {
-        unsaved_ops_count++;
-        check_and_sync();
+    if (rocksdb_persistence) {
+        bool persisted = rocksdb_persistence->put(full_key, entry);
+        if (!persisted) {
+            LOG_ERROR("[CLI] Failed to persist to RocksDB");
+            return false;
+        }
     }
+
+    // 4. Store in CuckooTable (cache)
+    bool result = storage->insert(full_key, entry);
     
     return result;
 }
 
 std::string KallistoServer::get_secret(const std::string& path, const std::string& key) {
-    // LOG_DEBUG("[KallistoServer] Request: GET path=" + path + " key=" + key);
-    
     // Step 1: Validate Path using B-Tree
     LOG_DEBUG("[B-TREE] Validating path...");
     if (!path_index->validate_path(path)) {
         LOG_ERROR("[B-TREE] Path validation failed: " + path);
         return "";
     }
-    // LOG_DEBUG("[B-TREE] Path validated at: " + path);
 
-    // Step 2: Secure Lookup in Cuckoo Table
+    // Step 2: Try CuckooTable (hot cache, sub-µs)
     LOG_DEBUG("[CUCKOO] Looking up secret...");
     std::string full_key = build_full_key(path, key);
     auto entry = storage->lookup(full_key);
+    
+    // Step 3: Cache miss → fallback to RocksDB
+    if (!entry.has_value() && rocksdb_persistence) {
+        auto disk_entry = rocksdb_persistence->get(full_key);
+        if (disk_entry.has_value()) {
+            LOG_INFO("[ROCKSDB] Cache miss, found on disk. Populating CuckooTable.");
+            storage->insert(full_key, disk_entry.value());
+            path_index->insert_path(disk_entry->path);
+            return disk_entry->value;
+        }
+    }
     
     if (entry) {
         LOG_INFO("[CUCKOO] HIT! Value retrieved.");
@@ -92,13 +122,17 @@ std::string KallistoServer::get_secret(const std::string& path, const std::strin
 
 bool KallistoServer::delete_secret(const std::string& path, const std::string& key) {
     std::string full_key = build_full_key(path, key);
-    bool result = storage->remove(full_key);
     
-    if (result) {
-        unsaved_ops_count++;
-        check_and_sync();
+    // RocksDB FIRST
+    if (rocksdb_persistence) {
+        bool persisted = rocksdb_persistence->del(full_key);
+        if (!persisted) {
+            LOG_ERROR("[CLI] Failed to delete from RocksDB");
+            return false;
+        }
     }
     
+    bool result = storage->remove(full_key);
     return result;
 }
 
@@ -116,22 +150,17 @@ void KallistoServer::rebuild_indices(const std::vector<SecretEntry>& secrets) {
 }
 
 void KallistoServer::check_and_sync() {
-    bool should_sync = false;
-
-    if (sync_mode == SyncMode::IMMEDIATE) {
-        should_sync = true;
-    } else if (unsaved_ops_count >= 10000000) { // Practically never in benchmark
-        LOG_INFO("[PERSISTENCE] Sync Threshold reached. Saving...");
-        should_sync = true;
-    }
-
-    if (should_sync) {
-        force_save();
+    // With RocksDB, every write is already persisted.
+    // This is kept for legacy SyncMode::IMMEDIATE flush behavior.
+    if (sync_mode == SyncMode::IMMEDIATE && rocksdb_persistence) {
+        rocksdb_persistence->flush();
     }
 }
 
 void KallistoServer::force_save() {
-    persistence->save_snapshot(storage->get_all_entries());
+    if (rocksdb_persistence) {
+        rocksdb_persistence->flush();
+    }
     unsaved_ops_count = 0;
 }
 

@@ -11,6 +11,8 @@
 
 namespace kallisto {
 
+class RocksDBStorage;  // Forward declaration
+
 class KallistoServer {
 public:
     KallistoServer();
@@ -19,19 +21,23 @@ public:
     /**
      * Stores a secret at a specific path.
      * 1. Validates path in B-Tree.
-     * 2. Inserts/Updates entry in Sharded Cuckoo Table (thread-safe).
+     * 2. Persists to RocksDB FIRST (Write-Ahead).
+     * 3. Inserts into CuckooTable cache.
      */
     bool put_secret(const std::string& path, const std::string& key, const std::string& value);
 
     /**
      * Retrieves a secret.
      * 1. Validates path in B-Tree.
-     * 2. O(1) Lookup in Sharded Cuckoo Table (thread-safe).
+     * 2. O(1) Lookup in CuckooTable (hot cache).
+     * 3. Cache miss → fallback to RocksDB → populate CuckooTable.
      */
     std::string get_secret(const std::string& path, const std::string& key);
 
     /**
      * Deletes a secret.
+     * 1. Deletes from RocksDB FIRST.
+     * 2. Removes from CuckooTable cache.
      */
     bool delete_secret(const std::string& path, const std::string& key);
 
@@ -43,16 +49,16 @@ public:
     void set_sync_mode(SyncMode mode);
 
     /**
-     * Manuall triggers a disk sync.
-     * Useful when batch mode is enabled.
+     * Manually triggers a disk flush.
      */
     void force_save();
 
 private:
-    // Thread-safe sharded storage (64 partitions)
+    // Thread-safe sharded storage (64 partitions) — HOT CACHE
     std::unique_ptr<ShardedCuckooTable> storage;
     std::unique_ptr<BTreeIndex> path_index;
-    std::unique_ptr<StorageEngine> persistence;
+    std::unique_ptr<StorageEngine> persistence;  // Legacy snapshot (kept for migration)
+    std::unique_ptr<RocksDBStorage> rocksdb_persistence;  // RocksDB persistence layer
 
     // Persistence Strategy
     SyncMode sync_mode = SyncMode::IMMEDIATE; // Default to safe

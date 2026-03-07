@@ -1,4 +1,5 @@
 #include "kallisto/server/grpc_handler.hpp"
+#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 #include <grpcpp/grpcpp.h>
@@ -95,9 +96,11 @@ private:
 // ---------------------------------------------------------------------------
 
 GrpcHandler::GrpcHandler(event::Dispatcher& dispatcher,
-                         std::shared_ptr<ShardedCuckooTable> storage)
+                         std::shared_ptr<ShardedCuckooTable> storage,
+                         std::shared_ptr<RocksDBStorage> persistence)
     : dispatcher_(dispatcher)
     , storage_(std::move(storage))
+    , persistence_(std::move(persistence))
     , service_(std::make_unique<SecretServiceImpl>()) {
 }
 
@@ -212,6 +215,7 @@ void GrpcHandler::spawnGet() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
     auto stor = storage_;
+    auto pers = persistence_;
     
     new TypedCallData<::kallisto::GetRequest, ::kallisto::GetResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::GetRequest* req,
@@ -219,9 +223,21 @@ void GrpcHandler::spawnGet() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestGet(ctx, req, resp, cq, cq, tag);
         },
-        [stor](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
+        [stor, pers](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
                grpc::Status* status) {
+            // Step 1: Try CuckooTable (hot cache)
             auto result = stor->lookup(req.path());
+            
+            // Step 2: Cache miss → fallback to RocksDB
+            if (!result.has_value() && pers) {
+                auto disk_result = pers->get(req.path());
+                if (disk_result.has_value()) {
+                    // Populate back into CuckooTable (thread-safe)
+                    stor->insert(req.path(), disk_result.value());
+                    result = std::move(disk_result);
+                }
+            }
+            
             if (result.has_value()) {
                 auto& entry = result.value();
                 resp->set_value(entry.value);
@@ -242,6 +258,7 @@ void GrpcHandler::spawnPut() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
     auto stor = storage_;
+    auto pers = persistence_;
     
     new TypedCallData<::kallisto::PutRequest, ::kallisto::PutResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::PutRequest* req,
@@ -249,12 +266,22 @@ void GrpcHandler::spawnPut() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestPut(ctx, req, resp, cq, cq, tag);
         },
-        [stor](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
+        [stor, pers](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
                grpc::Status* status) {
             SecretEntry entry;
             entry.key = req.path();
             entry.value = req.value();
             entry.created_at = std::chrono::system_clock::now();
+            
+            // Write-Ahead: RocksDB FIRST, then CuckooTable
+            if (pers) {
+                bool persisted = pers->put(req.path(), entry);
+                if (!persisted) {
+                    resp->set_success(false);
+                    resp->set_error("Failed to persist to disk");
+                    return;
+                }
+            }
             
             bool ok = stor->insert(req.path(), entry);
             resp->set_success(ok);
@@ -270,6 +297,7 @@ void GrpcHandler::spawnDelete() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
     auto stor = storage_;
+    auto pers = persistence_;
     
     new TypedCallData<::kallisto::DeleteRequest, ::kallisto::DeleteResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::DeleteRequest* req,
@@ -277,10 +305,19 @@ void GrpcHandler::spawnDelete() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestDelete(ctx, req, resp, cq, cq, tag);
         },
-        [stor](const ::kallisto::DeleteRequest& req, ::kallisto::DeleteResponse* resp, 
+        [stor, pers](const ::kallisto::DeleteRequest& req, ::kallisto::DeleteResponse* resp, 
                grpc::Status* status) {
-            bool ok = stor->remove(req.path());
-            resp->set_success(ok);
+            // RocksDB FIRST: ensure deletion is persisted
+            if (pers) {
+                bool persisted = pers->del(req.path());
+                if (!persisted) {
+                    resp->set_success(false);
+                    return;
+                }
+            }
+            
+            stor->remove(req.path());
+            resp->set_success(true);
         },
         [this]() { spawnDelete(); }
     );

@@ -12,6 +12,9 @@
 #include <functional>
 
 namespace kallisto {
+
+class RocksDBStorage;  // Forward declaration
+
 namespace server {
 
 /**
@@ -32,7 +35,8 @@ namespace server {
 class HttpHandler {
 public:
     HttpHandler(event::Dispatcher& dispatcher,
-                std::shared_ptr<ShardedCuckooTable> storage);
+                std::shared_ptr<ShardedCuckooTable> storage,
+                std::shared_ptr<RocksDBStorage> persistence = nullptr);
     ~HttpHandler();
     
     /**
@@ -92,6 +96,7 @@ private:
     
     event::Dispatcher& dispatcher_;
     std::shared_ptr<ShardedCuckooTable> storage_;
+    std::shared_ptr<RocksDBStorage> persistence_;  // RocksDB persistence layer
     std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 
