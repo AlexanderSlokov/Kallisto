@@ -33,6 +33,14 @@ KallistoServer::KallistoServer() {
             }
             LOG_INFO("[CLI] Migration complete.");
         }
+    } else if (rocksdb_persistence) {
+        // Normal startup: Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
+        size_t count = 0;
+        rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
+            path_index->insert_path(entry.path);
+            count++;
+        });
+        LOG_INFO("[CLI] Rebuilt B-Tree index with " + std::to_string(count) + " paths from RocksDB.");
     }
 }
 

@@ -97,10 +97,12 @@ private:
 
 GrpcHandler::GrpcHandler(event::Dispatcher& dispatcher,
                          std::shared_ptr<ShardedCuckooTable> storage,
-                         std::shared_ptr<RocksDBStorage> persistence)
+                         std::shared_ptr<RocksDBStorage> persistence,
+                         std::shared_ptr<BTreeIndex> path_index)
     : dispatcher_(dispatcher)
     , storage_(std::move(storage))
     , persistence_(std::move(persistence))
+    , path_index_(std::move(path_index))
     , service_(std::make_unique<SecretServiceImpl>()) {
 }
 
@@ -216,6 +218,7 @@ void GrpcHandler::spawnGet() {
     auto* cq = cq_.get();
     auto stor = storage_;
     auto pers = persistence_;
+    auto p_idx = path_index_;
     
     new TypedCallData<::kallisto::GetRequest, ::kallisto::GetResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::GetRequest* req,
@@ -223,8 +226,15 @@ void GrpcHandler::spawnGet() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestGet(ctx, req, resp, cq, cq, tag);
         },
-        [stor, pers](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
+        [stor, pers, p_idx](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
                grpc::Status* status) {
+            // Step 0: B-Tree validation
+            if (p_idx && !p_idx->validate_path(req.path())) {
+                kallisto::warn("[GRPC] B-Tree validation failed for GET path: " + req.path());
+                *status = grpc::Status(grpc::StatusCode::NOT_FOUND, "Secret not found (B-Tree reject)");
+                return;
+            }
+
             // Step 1: Try CuckooTable (hot cache)
             auto result = stor->lookup(req.path());
             
@@ -259,6 +269,7 @@ void GrpcHandler::spawnPut() {
     auto* cq = cq_.get();
     auto stor = storage_;
     auto pers = persistence_;
+    auto p_idx = path_index_;
     
     new TypedCallData<::kallisto::PutRequest, ::kallisto::PutResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::PutRequest* req,
@@ -266,8 +277,13 @@ void GrpcHandler::spawnPut() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestPut(ctx, req, resp, cq, cq, tag);
         },
-        [stor, pers](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
+        [stor, pers, p_idx](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
                grpc::Status* status) {
+            // Step 0: Register path in B-Tree index
+            if (p_idx) {
+                p_idx->insert_path(req.path());
+            }
+
             SecretEntry entry;
             entry.key = req.path();
             entry.value = req.value();

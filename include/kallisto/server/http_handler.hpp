@@ -11,6 +11,8 @@
 #include <vector>
 #include <functional>
 
+#include "kallisto/btree_index.hpp"
+
 namespace kallisto {
 
 class RocksDBStorage;  // Forward declaration
@@ -36,7 +38,8 @@ class HttpHandler {
 public:
     HttpHandler(event::Dispatcher& dispatcher,
                 std::shared_ptr<ShardedCuckooTable> storage,
-                std::shared_ptr<RocksDBStorage> persistence = nullptr);
+                std::shared_ptr<RocksDBStorage> persistence = nullptr,
+                std::shared_ptr<BTreeIndex> path_index = nullptr);
     ~HttpHandler();
     
     /**
@@ -97,6 +100,7 @@ private:
     event::Dispatcher& dispatcher_;
     std::shared_ptr<ShardedCuckooTable> storage_;
     std::shared_ptr<RocksDBStorage> persistence_;  // RocksDB persistence layer
+    std::shared_ptr<BTreeIndex> path_index_;       // DoS Gateway
     std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 
