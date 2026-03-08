@@ -58,14 +58,16 @@ public:
                 break;
                 
             case Status::PROCESS: {
-                // Spawn replacement to accept next request of same type
-                spawn_fn_();
-                
+                // If ok == false in PROCESS state, it means the server is shutting down
+                // and the request for a new client was cancelled. There is no active client.
                 if (!ok) {
                     status_ = Status::FINISH;
-                    responder_.FinishWithError(grpc::Status::CANCELLED, this);
+                    delete this;
                     return;
                 }
+                
+                // Spawn replacement to accept next request of same type
+                spawn_fn_();
                 
                 grpc::Status grpc_status = grpc::Status::OK;
                 handle_fn_(req_, &resp_, &grpc_status);
