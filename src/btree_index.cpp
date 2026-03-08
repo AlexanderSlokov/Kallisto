@@ -9,6 +9,11 @@ BTreeIndex::BTreeIndex(int degree) : min_degree(degree) {
 bool BTreeIndex::insert_path(const std::string& path) {
     if (validate_path(path)) return true;
 
+    std::unique_lock<std::shared_mutex> lock(rw_lock_);
+    
+    // Double-check under write lock
+    if (search(root.get(), path)) return true;
+
     Node* r = root.get();
     if (r->keys.size() == 2 * min_degree - 1) {
         auto s = std::make_unique<Node>(false);
@@ -23,6 +28,7 @@ bool BTreeIndex::insert_path(const std::string& path) {
 }
 
 bool BTreeIndex::validate_path(const std::string& path) const {
+    std::shared_lock<std::shared_mutex> lock(rw_lock_);
     return search(root.get(), path);
 }
 

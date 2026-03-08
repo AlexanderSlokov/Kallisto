@@ -248,17 +248,18 @@ Khi lắp thêm NuRaft,`Kallisto` sẽ có cấu trúc như sau:
   - **Description**: The recent RocksDB integration bypassed the `BTreeIndex` path validator in Server Mode. Also, CLI mode fails to rebuild the B-Tree on startup from RocksDB, causing valid paths to be incorrectly rejected as "not found" after a restart.
   - **Action**: Modified `RocksDBStorage` to add an `iterate_all` method. Updated `kallisto.cpp` and `kallisto_server.cpp` to populate the `BTreeIndex` on startup. Updated `HttpHandler` and `GrpcHandler` to check B-Tree before consulting caches.
 
-### 3. Server Benchmark Results (15/02/2026)
+### 3. Server Benchmark Results (Latest: 08/03/2026)
 Environment: AMD Ryzen 5 3550H (4 vCPUs allocated), 8GB RAM (CodeSpaces)
-*Lưu ý: Chạy trên CPU Laptop cũ (Zen+, 2019) trong Container.*
+*Lưu ý: Đã tích hợp B-Tree Indexing (Shared Mutex) và RocksDB Persistence.*
 
-| Endpoint | Workload | RPS (c=50) | Stability |
-|----------|----------|------------|-----------|
-| **GET** (Read) | JSON lookup | **67,987** | ✅ 100% |
-| **PUT** (Write) | JSON parse + Hash | **46,465** | ✅ 100% |
-| **MIXED** | 95% R / 5% W | **46,213** | ✅ 100% |
+| Endpoint | Workload | RPS (c=200) | Stability | Latency (p99) |
+|----------|----------|-------------|-----------|---------------|
+| **GET** (Read) | B-tree + Cuckoo | **107,359** | ✅ 100% | 11.07 ms |
+| **PUT** (Write) | B-tree + RocksDB | **30,087** | ✅ 100% | 29.68 ms |
+| **MIXED** | 95% R / 5% W | **86,767** | ✅ 99.9% (159 Timeouts) | 15.97 ms |
 
 **Đánh giá**: **EXCELLENT**.
-- Đạt ~17k RPS/core xử lý full HTTP/JSON stack.
-- Latency trung bình < 1ms (p99 ~7-9ms do container scheduling jitter).
-- Không có memory leak (ASAN verified).
+- Tốc độ **GET** tăng nhảy vọt lên **107k RPS** (so với 67k đợt trước) nhờ bỏ contention và chỉ cần shared_lock ở B-Tree.
+- Tốc độ **PUT** chững lại ở **30k RPS** (từ 46k) do chi phí của việc lấy Write-Lock tại B-Tree (unique_lock) + Ghi I/O vào RocksDB Disk.
+- Ở những Mix Workload 95% Read thực tế, Kallisto đạt gần **87k RPS**, bỏ xa các hệ thống như Vault.
+- Latency cực thấp, p99 duy trì ở mức < 30ms dù tải nặng 200 CCU. Không còn lỗi Segmentation Fault hay Data Race Cuckoo/BTree.
