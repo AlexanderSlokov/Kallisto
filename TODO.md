@@ -323,11 +323,17 @@ Khi lắp thêm NuRaft,`Kallisto` sẽ có cấu trúc như sau:
   - Giải pháp: **Deferred Mutation** (Pending Add/Remove queues) + `std::unique_ptr<Connection>`.
 - **Concurrency Crash**: Fix lỗi race condition ở `ShardedCuckooTable` khi write load cao.
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 - [x] **[URGENT] B-Tree Index Bypass**
   - **Severity**: High (DoS vulnerability + Data Accessibility issue)
   - **Description**: The recent RocksDB integration bypassed the `BTreeIndex` path validator in Server Mode. Also, CLI mode fails to rebuild the B-Tree on startup from RocksDB, causing valid paths to be incorrectly rejected as "not found" after a restart.
   - **Action**: Modified `RocksDBStorage` to add an `iterate_all` method. Updated `kallisto.cpp` and `kallisto_server.cpp` to populate the `BTreeIndex` on startup. Updated `HttpHandler` and `GrpcHandler` to check B-Tree before consulting caches.
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
 ### 3. Server Benchmark Results (15/02/2026)
