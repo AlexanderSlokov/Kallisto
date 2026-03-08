@@ -393,33 +393,36 @@ make test-persistence      # Correctness: CRUD + crash recovery
 # Architecture Overview
 
 ```markdown
-┌─────────────────────────────────────────────────────┐
-│                  Kallisto Server                    │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
-│  │ Worker 0 │  │ Worker 1 │  │ Worker N │   ...     │
-│  │ ┌──────┐ │  │ ┌──────┐ │  │ ┌──────┐ │           │
-│  │ │epoll │ │  │ │epoll │ │  │ │epoll │ │           │
-│  │ └──┬───┘ │  │ └──┬───┘ │  │ └──┬───┘ │           │
-│  │    │     │  │    │     │  │    │     │           │
-│  │ ┌──┴───┐ │  │ ┌──┴───┐ │  │ ┌──┴───┐ │           │
-│  │ │HTTP  │ │  │ │HTTP  │ │  │ │HTTP  │ │  :8200    │
-│  │ │Listen│ │  │ │Listen│ │  │ │Listen│ │           │
-│  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │           │
-│  │ ┌──────┐ │  │ ┌──────┐ │  │ ┌──────┐ │           │
-│  │ │gRPC  │ │  │ │gRPC  │ │  │ │gRPC  │ │  :8201    │
-│  │ │CQ    │ │  │ │CQ    │ │  │ │CQ    │ │           │
-│  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │           │
-│  └──────────┘  └──────────┘  └──────────┘           │
-│                      │                              │
-│              SO_REUSEPORT                           │
-│         (Kernel distributes conns)                  │
-│                      │                              │
-│          ┌───────────┴──────────┐                   │
-│          │  ShardedCuckooTable  │                   │
-│          │  (64 shards, 1M+)    │                   │
-│          └──────────────────────┘                   │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Kallisto Server                        │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+│  │ Worker 0 │  │ Worker 1 │  │ Worker N │                   │
+│  │ ┌──────┐ │  │ ┌──────┐ │  │ ┌──────┐ │                   │
+│  │ │epoll │ │  │ │epoll │ │  │ │epoll │ │ (Event Loop)      │
+│  │ └──┬───┘ │  │ └──┬───┘ │  │ └──┬───┘ │                   │
+│  │    │     │  │    │     │  │    │     │                   │
+│  │ ┌──┴───┐ │  │ ┌──┴───┐ │  │ ┌──┴───┐ │                   │
+│  │ │HTTP/ │ │  │ │HTTP/ │ │  │ │HTTP/ │ │ (Protocol parsing)│
+│  │ │gRPC  │ │  │ │gRPC  │ │  │ │gRPC  │ │                   │
+│  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │                   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                   │
+│       │             │             │                         │
+│       └─────────────┼─────────────┘    (SO_REUSEPORT)       │
+│                     ▼                                       │
+│          ┌──────────────────────┐                           │
+│          │      BTreeIndex      │ (Gatekeeper / Path Index) │
+│          │   (shared_mutex)     │                           │
+│          └──────────┬───────────┘                           │
+│                     │ Validation                            │
+│           ┌─────────┴─────────────────────┐                 │
+│           ▼         (Cache Miss / Put)    ▼                 │
+│  ┌──────────────────────┐       ┌──────────────────┐        │
+│  │  ShardedCuckooTable  │       │  RocksDBStorage  │        │
+│  │  (In-memory Hot Cache)       │   (Disk WAL)     │        │
+│  └──────────────────────┘       └──────────────────┘        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Each worker is independent — zero lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections, achieving near-linear scaling with CPU cores.
+Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly.
+The `BTreeIndex` acts as a multi-reader/single-writer Gatekeeper, protecting against O(n) Hash-Flooding attacks by filtering invalid keys *before* fetching from RAM/Disk. Hit data is instantly fetched from the concurrent `ShardedCuckooTable` (64 shards lock-free lookup), while persisting writes crash-safely to `RocksDBStorage` (WAL).
