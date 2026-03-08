@@ -9,7 +9,7 @@ KallistoServer::KallistoServer() {
     // Capacity: 2M items across 64 shards (~31K per shard)
     storage = std::make_unique<ShardedCuckooTable>(2000000);
     
-    path_index = std::make_unique<BTreeIndex>(5);
+    path_index = std::make_unique<TlsBTreeManager>(5, nullptr);
     
     // RocksDB persistence (replaces old StorageEngine snapshot)
     // CuckooTable starts EMPTY — warms up via cache-miss fallback
@@ -37,7 +37,7 @@ KallistoServer::KallistoServer() {
         // Normal startup: Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
         size_t count = 0;
         rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
-            path_index->insert_path(entry.path);
+            path_index->update(entry.path);
             count++;
         });
         LOG_INFO("[CLI] Rebuilt B-Tree index with " + std::to_string(count) + " paths from RocksDB.");
@@ -69,7 +69,7 @@ std::string KallistoServer::build_full_key(const std::string& path, const std::s
 
 bool KallistoServer::put_secret(const std::string& path, const std::string& key, const std::string& value) {
     // 1. Ensure path exists in path index
-    path_index->insert_path(path);
+    path_index->update(path);
     
     // 2. Prepare secret entry
     SecretEntry entry;
@@ -98,7 +98,7 @@ bool KallistoServer::put_secret(const std::string& path, const std::string& key,
 std::string KallistoServer::get_secret(const std::string& path, const std::string& key) {
     // Step 1: Validate Path using B-Tree
     LOG_DEBUG("[B-TREE] Validating path...");
-    if (!path_index->validate_path(path)) {
+    if (!path_index->get_local()->validate_path(path)) {
         LOG_ERROR("[B-TREE] Path validation failed: " + path);
         return "";
     }
@@ -114,7 +114,7 @@ std::string KallistoServer::get_secret(const std::string& path, const std::strin
         if (disk_entry.has_value()) {
             LOG_INFO("[ROCKSDB] Cache miss, found on disk. Populating CuckooTable.");
             storage->insert(full_key, disk_entry.value());
-            path_index->insert_path(disk_entry->path);
+            path_index->update(disk_entry->path);
             return disk_entry->value;
         }
     }
@@ -148,7 +148,7 @@ void KallistoServer::rebuild_indices(const std::vector<SecretEntry>& secrets) {
     LOG_INFO("[RECOVERY] Rebuilding state from " + std::to_string(secrets.size()) + " entries...");
     for (const auto& entry : secrets) {
         // 1. Rebuild B-Tree
-        path_index->insert_path(entry.path);
+        path_index->update(entry.path);
         
         // 2. Re-populate Cuckoo Table
         std::string full_key = build_full_key(entry.path, entry.key);

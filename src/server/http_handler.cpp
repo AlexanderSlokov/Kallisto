@@ -20,7 +20,7 @@ namespace server {
 HttpHandler::HttpHandler(event::Dispatcher& dispatcher,
                          std::shared_ptr<ShardedCuckooTable> storage,
                          std::shared_ptr<RocksDBStorage> persistence,
-                         std::shared_ptr<BTreeIndex> path_index)
+                         std::shared_ptr<TlsBTreeManager> path_index)
     : dispatcher_(dispatcher)
     , storage_(std::move(storage))
     , persistence_(std::move(persistence))
@@ -270,7 +270,7 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
     // Step 0: B-Tree validation (DoS protection, O(log N))
-    if (path_index_ && !path_index_->validate_path(path)) {
+    if (path_index_ && !path_index_->get_local()->validate_path(path)) {
         kallisto::warn("[HTTP] B-Tree validation failed for GET path: " + path);
         sendError(conn, 404, "Secret not found (B-Tree reject)");
         return;
@@ -319,7 +319,7 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
     
     // Step 0: Register path in B-Tree index
     if (path_index_) {
-        path_index_->insert_path(path);
+        path_index_->update(path);
     }
     
     // Quick & dirty JSON extraction for Vault v2 request: {"data": {"foo": "bar"}}
