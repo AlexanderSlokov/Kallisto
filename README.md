@@ -41,30 +41,11 @@ make build-server
 
 ## Docker Support
 
-Kallisto provides a fully optimized multi-stage `Dockerfile` to build and run the server without polluting your host environment.
+Kallisto automatically builds and publishes Docker images to the GitHub Container Registry (GHCR).
 
-### 1. Build the Production Image
+### 1. Run the Production Server
 
-This will compile the C++ source and package it into an ultra-small Ubuntu compatible image.
-
-```bash
-docker build -t kallisto-server:latest .
-# Or using Makefile: make docker-build
-```
-
-### 2. Run Tests in Docker Container
-
-If you want an isolated environment to run the test suite:
-
-```bash
-docker build --target tester -t kallisto-tester:latest .
-docker run --rm kallisto-tester:latest make test
-# Or using Makefile: make docker-test
-```
-
-### 3. Run the Production Server
-
-Run the Kallisto server in the background, mounting a volume for RocksDB persistence:
+You don't even need to build anything. Just pull the image and run the server in the background, mounting a volume for RocksDB persistence:
 
 ```bash
 docker run -d \
@@ -72,8 +53,26 @@ docker run -d \
   -p 8200:8200 \
   -p 8201:8201 \
   -v my-kallisto-data:/data/kallisto/rocksdb \
-  kallisto-server:latest
-# Or using Makefile: make docker-run
+  ghcr.io/alexanderslokov/kallisto:latest
+```
+
+### 2. Run Tests / Benchmark in Docker Container
+
+If you want an isolated environment with `wrk` and `ghz` installed to run the test suite or benchmark the server:
+
+```bash
+# Start a detached temporary container running Bash
+docker run -it --rm ghcr.io/alexanderslokov/kallisto-tester:latest bash
+# Inside the container, run 'make test' or access the 'bench' scripts.
+```
+
+### 3. Build Locally (Development)
+
+If you are modifying the C++ source code and want to build the Docker image locally:
+
+```bash
+docker build -t kallisto-server:latest .
+# Or using Makefile: make docker-build
 ```
 
 ## CLI Mode (Interactive REPL)
