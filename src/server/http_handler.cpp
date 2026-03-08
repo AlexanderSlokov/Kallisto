@@ -19,10 +19,12 @@ namespace server {
 
 HttpHandler::HttpHandler(event::Dispatcher& dispatcher,
                          std::shared_ptr<ShardedCuckooTable> storage,
-                         std::shared_ptr<RocksDBStorage> persistence)
+                         std::shared_ptr<RocksDBStorage> persistence,
+                         std::shared_ptr<BTreeIndex> path_index)
     : dispatcher_(dispatcher)
     , storage_(std::move(storage))
-    , persistence_(std::move(persistence)) {
+    , persistence_(std::move(persistence))
+    , path_index_(std::move(path_index)) {
 }
 
 HttpHandler::~HttpHandler() {
@@ -267,6 +269,13 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 // ---------------------------------------------------------------------------
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
+    // Step 0: B-Tree validation (DoS protection, O(log N))
+    if (path_index_ && !path_index_->validate_path(path)) {
+        kallisto::warn("[HTTP] B-Tree validation failed for GET path: " + path);
+        sendError(conn, 404, "Secret not found (B-Tree reject)");
+        return;
+    }
+
     // Step 1: Try CuckooTable (hot cache, sub-µs)
     auto result = storage_->lookup(path);
     
@@ -300,9 +309,20 @@ void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
     sendResponse(conn, 200, "application/json", json);
 }
 
-void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
-                                   const std::string& body) {
-    // Simple JSON extraction: find "value":"..."
+void HttpHandler::handlePutSecret(Connection& conn, const std::string& path, 
+                                 const std::string& body) {
+    // Basic validation
+    if (path.empty() || body.empty()) {
+        sendError(conn, 400, "Bad Request: Path and body required");
+        return;
+    }
+    
+    // Step 0: Register path in B-Tree index
+    if (path_index_) {
+        path_index_->insert_path(path);
+    }
+    
+    // Quick & dirty JSON extraction for Vault v2 request: {"data": {"foo": "bar"}}
     // For production, use simdjson. This is minimal for prototype.
     std::string value;
     

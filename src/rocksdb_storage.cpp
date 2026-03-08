@@ -113,6 +113,27 @@ bool RocksDBStorage::del(const std::string& key) {
     return true;
 }
 
+void RocksDBStorage::iterate_all(std::function<void(const SecretEntry&)> callback) const {
+    if (!db_open_ || !db_raw_) return;
+
+    rocksdb::ReadOptions iter_opts = read_opts_;
+    iter_opts.total_order_seek = true;
+    std::unique_ptr<rocksdb::Iterator> it(db_raw_->NewIterator(iter_opts));
+    
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        try {
+            SecretEntry entry = deserialize(it->value().ToString());
+            callback(entry);
+        } catch (const std::exception& e) {
+            LOG_ERROR("[ROCKSDB] Iterator deserialize failed: " + std::string(e.what()));
+        }
+    }
+    
+    if (!it->status().ok()) {
+        LOG_ERROR("[ROCKSDB] Iterator error: " + it->status().ToString());
+    }
+}
+
 void RocksDBStorage::flush() {
     if (!db_open_ || !db_raw_) return;
 
@@ -227,6 +248,7 @@ bool RocksDBStorage::del(const std::string&) {
 void RocksDBStorage::flush() {}
 void RocksDBStorage::set_sync(bool) {}
 bool RocksDBStorage::is_open() const { return false; }
+void RocksDBStorage::iterate_all(std::function<void(const SecretEntry&)>) const {}
 
 std::string RocksDBStorage::serialize(const SecretEntry&) const { return ""; }
 SecretEntry RocksDBStorage::deserialize(const std::string&) const { return {}; }

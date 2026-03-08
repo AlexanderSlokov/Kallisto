@@ -55,6 +55,13 @@ public:
     bool del(const std::string& key);
 
     /**
+     * Iterate over all entries in the database.
+     * Useful for rebuilding indices on startup without loading all data into memory.
+     * @param callback Function to call for each SecretEntry.
+     */
+    void iterate_all(std::function<void(const SecretEntry&)> callback) const;
+
+    /**
      * Force flush WAL to disk (maps to SAVE command).
      */
     void flush();

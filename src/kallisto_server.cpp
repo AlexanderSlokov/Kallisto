@@ -13,6 +13,7 @@
 #include "kallisto/server/http_handler.hpp"
 #include "kallisto/sharded_cuckoo_table.hpp"
 #include "kallisto/rocksdb_storage.hpp"
+#include "kallisto/btree_index.hpp"
 #include "kallisto/logger.hpp"
 
 #include <csignal>
@@ -90,6 +91,10 @@ int main(int argc, char** argv) {
     auto storage = std::make_shared<ShardedCuckooTable>(1024 * 1024);
     info("[SERVER] ShardedCuckooTable created (1M buckets, 64 shards)");
     
+    // Create B-Tree firewall (O(logN) gateway)
+    auto path_index = std::make_shared<BTreeIndex>(5);
+    info("[SERVER] BTreeIndex created");
+
     // Create RocksDB persistence layer
     // Parse --db-path if provided
     std::string db_path = "/data/kallisto/rocksdb";
@@ -102,6 +107,14 @@ int main(int argc, char** argv) {
     auto persistence = std::make_shared<RocksDBStorage>(db_path);
     if (persistence->is_open()) {
         info("[SERVER] RocksDB persistence layer opened at: " + db_path);
+        
+        // Populate B-Tree from RocksDB so cache-miss aren't blocked
+        size_t count = 0;
+        persistence->iterate_all([&](const SecretEntry& entry) {
+            path_index->insert_path(entry.path);
+            count++;
+        });
+        info("[SERVER] Rebuilt B-Tree index with " + std::to_string(count) + " paths");
     } else {
         warn("[SERVER] RocksDB persistence unavailable — running in-memory only");
         persistence = nullptr;  // Handlers check for nullptr
@@ -123,7 +136,7 @@ int main(int argc, char** argv) {
             
             // Each worker binds HTTP port (SO_REUSEPORT)
             auto http_handler = std::make_shared<server::HttpHandler>(
-                worker.dispatcher(), storage, persistence);
+                worker.dispatcher(), storage, persistence, path_index);
             worker.bindListener(http_port, [http_handler](int fd) {
                 http_handler->onNewConnection(fd);
             });
@@ -133,7 +146,7 @@ int main(int argc, char** argv) {
             // Note: gRPC manages its own listening socket internally,
             //       but we use SO_REUSEPORT address for the builder
             auto grpc_handler = std::make_shared<server::GrpcHandler>(
-                worker.dispatcher(), storage, persistence);
+                worker.dispatcher(), storage, persistence, path_index);
             grpc_handler->initialize(grpc_port);
             grpc_handlers.push_back(grpc_handler);
         }

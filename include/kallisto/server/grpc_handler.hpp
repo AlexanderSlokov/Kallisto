@@ -15,6 +15,8 @@ class Server;
 class ServerCompletionQueue;
 }
 
+#include "kallisto/btree_index.hpp"
+
 namespace kallisto {
 
 class RocksDBStorage;  // Forward declaration
@@ -37,7 +39,8 @@ class GrpcHandler {
 public:
     GrpcHandler(event::Dispatcher& dispatcher,
                 std::shared_ptr<ShardedCuckooTable> storage,
-                std::shared_ptr<RocksDBStorage> persistence = nullptr);
+                std::shared_ptr<RocksDBStorage> persistence = nullptr,
+                std::shared_ptr<BTreeIndex> path_index = nullptr);
     ~GrpcHandler();
     
     /**
@@ -74,6 +77,7 @@ private:
     event::Dispatcher& dispatcher_;
     std::shared_ptr<ShardedCuckooTable> storage_;
     std::shared_ptr<RocksDBStorage> persistence_;  // RocksDB persistence layer
+    std::shared_ptr<BTreeIndex> path_index_;       // DoS Gateway
     
     std::unique_ptr<SecretServiceImpl> service_;
     std::unique_ptr<grpc::Server> server_;

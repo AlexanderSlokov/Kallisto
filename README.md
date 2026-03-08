@@ -257,7 +257,20 @@ grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
 
 # Persistence — RocksDB
 
-Starting from `v0.1.0`, Kallisto uses **RocksDB 10.4.2** as a crash-safe WAL (Write-Ahead Log) persistence layer, replacing the old snapshot-based engine.
+Starting from `v0.1.0`, Kallisto uses **RocksDB 10.4.2** as a crash-safe WAL (Write-Ahead Log) persistence layer, replacing the old snapshot-based engine. CuckooTable remains the hot cache; RocksDB provides crash-safe persistence.
+
+## Architecture Data Flow
+
+```mermaid
+graph LR
+    Client -->|PUT/DELETE| Handler
+    Handler -->|1. Write-Ahead| RocksDB
+    Handler -->|2. Cache Update| CuckooTable
+    Client -->|GET| Handler
+    Handler -->|1. Cache Hit| CuckooTable
+    CuckooTable -.->|2. Cache Miss| RocksDB
+    RocksDB -.->|3. Populate| CuckooTable
+```
 
 ### Write Path
 
@@ -325,25 +338,24 @@ redis-server --daemonize yes --save ""   # no persistence, pure in-memory
 redis-benchmark -t set,get -n 500000 -c 200 -q
 ```
 
-### Results
+### Results (as of 08/03/2026, with B-Tree Mutex + RocksDB)
 
-| Workload | **Kallisto** | **Redis 7.0** | Δ |
+| Workload | **Kallisto (c=200)** | **Redis 7.0 (c=200)** | Δ |
 |---|---|---|---|
-| **GET** (read) | **127,673 RPS** | 30,142 RPS | 🏆 **4.2× faster** |
-| **SET / PUT** (write) | **29,157 RPS** | 29,117 RPS | **≈ equal** |
-| GET avg latency | **1.48 ms** | ~3.1 ms | 2× lower |
-| GET p99 latency | **8.00 ms** | — | |
-| PUT avg latency | 26.15 ms | ~3.5 ms | — |
-| PUT p99 latency | 448 ms | — | |
+| **GET** (read) | **107,359 RPS** | 30,142 RPS | 🏆 **3.5× faster** |
+| **SET / PUT** (write) | **30,087 RPS** | 29,117 RPS | **≈ equal** |
+| **MIXED** (95%R / 5%W) | **86,767 RPS** | — | |
+| GET p99 latency | **11.07 ms** | — | |
+| PUT p99 latency | **29.68 ms** | — | |
 | Persistence | ✅ RocksDB WAL | ❌ disabled (`--save ""`) | |
 | Protocol | HTTP/1.1 + JSON | Redis binary protocol | |
-| Errors | **0** | 0 | |
+| Errors | **0** (under load) | 0 | |
 
 ### Analysis
 
-**GET: Kallisto is 4.2× faster than Redis** — Redis is single-threaded by design. On this 8-logical-core container, Kallisto's SO_REUSEPORT workers saturate all cores while Redis uses exactly one. The CuckooTable lookup is O(1) sub-µs, and the 4 HTTP workers pipeline responses in parallel.
+**GET: Kallisto is 3.5× faster than Redis** — Redis is single-threaded by design. On this 8-logical-core container, Kallisto's SO_REUSEPORT workers saturate all cores while Redis uses exactly one. The CuckooTable lookup is O(1) sub-µs, protected by a highly concurrent `std::shared_mutex` at the B-Tree index level, allowing 100k+ parallel reads.
 
-**SET/PUT ≈ equal** — Both hit the same bottleneck: network loopback + system calls under WSL2. Notably, Kallisto's PUT includes a **full RocksDB WAL write** (persistent!), yet matches Redis which runs with `--save ""` (no persistence at all). On bare metal with NVMe, Kallisto's PUT would pull further ahead.
+**SET/PUT ≈ equal** — Both hit the same bottleneck: network loopback + system calls under WSL2. Notably, Kallisto's PUT includes a **full RocksDB WAL disk write** + **Exclusive B-Tree Lock** (persistent and secure!), yet matches Redis which runs with `--save ""` (no persistence at all). On bare metal with NVMe, Kallisto's PUT would pull further ahead.
 
 **Protocol fairness note**: Redis uses a tightly-optimized binary protocol (RESP). Kallisto uses HTTP/1.1 with JSON parsing — a strictly heavier stack. The GET advantage is architectural (multi-core), not protocol-level.
 

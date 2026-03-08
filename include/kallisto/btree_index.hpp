@@ -4,6 +4,8 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <shared_mutex>
+#include <mutex>
 
 namespace kallisto {
 
@@ -44,6 +46,7 @@ private:
 
 	std::unique_ptr<Node> root;
 	int min_degree; // Fixed the cryptic "t"
+	mutable std::shared_mutex rw_lock_;
 
 	/**
 	* Splits a child node into two nodes.
