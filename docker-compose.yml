@@ -4,7 +4,7 @@ services:
     build:
       context: .
       target: production
-    image: kallisto-server:latest
+    image: ghcr.io/alexanderslokov/kallisto:latest
     container_name: kallisto-server
     ports:
       - "8200:8200" # HTTP API (Vault compatible)
@@ -31,7 +31,7 @@ services:
     build:
       context: .
       target: tester
-    image: kallisto-tester:latest
+    image: ghcr.io/alexanderslokov/kallisto-tester:latest
     container_name: kallisto-tester
     depends_on:
       kallisto:
