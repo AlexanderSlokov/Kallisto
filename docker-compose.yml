@@ -1,0 +1,51 @@
+services:
+  # The Kallisto Production Server
+  kallisto:
+    build:
+      context: .
+      target: production
+    image: kallisto-server:latest
+    container_name: kallisto-server
+    ports:
+      - "8200:8200" # HTTP API (Vault compatible)
+      - "8201:8201" # gRPC API
+    volumes:
+      - kallisto-data:/data/kallisto/rocksdb
+    environment:
+      - WORKERS=4
+      - DB_PATH=/data/kallisto/rocksdb
+      - PORT_HTTP=8200
+      - PORT_GRPC=8201
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/v1/secret/data/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 2s
+    restart: unless-stopped
+    networks:
+      - kallisto-net
+
+  # The Benchmark / Tester container
+  tester:
+    build:
+      context: .
+      target: tester
+    image: kallisto-tester:latest
+    container_name: kallisto-tester
+    depends_on:
+      kallisto:
+        condition: service_healthy
+    # We override the default entrypoint to run the benchmark script
+    # It waits for the server, seeds data, and runs wrk tests against the 'kallisto' service
+    command: bash -c "export HTTP_PORT=8200 && export SERVER_BIN=skipped && sleep 2 && cd /app && wrk -t4 -c200 -d10s -s bench/wrk_get.lua http://kallisto:8200"
+    profiles: ["bench"] # This service won't start by default unless explicitly requested
+    networks:
+      - kallisto-net
+
+volumes:
+  kallisto-data:
+
+networks:
+  kallisto-net:
+    driver: bridge
