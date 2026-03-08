@@ -63,11 +63,11 @@ run: build
 	@echo "\n--- Starting Kallisto (Type 'HELP' for commands) ---\n"
 	@./$(BUILD_DIR)/$(TARGET)
 
-run-server: build-server
+run-server:
 	@echo "\n--- Starting Kallisto Server (RocksDB: $(DB_PATH)) ---\n"
 	@./$(BUILD_DIR)/kallisto_server --workers=$(shell nproc) --db-path=$(DB_PATH)
 
-test: build
+test:
 	@echo "\n--- Running Unit Tests ---\n"
 	@./$(BUILD_DIR)/kallisto_test
 

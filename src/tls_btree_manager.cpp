@@ -46,9 +46,10 @@ bool TlsBTreeManager::update(const std::string& path) {
 
     // Dispatch update to all workers
     if (workers_) {
-        for (auto& worker : workers_->get_workers()) {
-            if (worker && worker->get_dispatcher()) {
-                worker->get_dispatcher()->post([new_master]() {
+        for (size_t i = 0; i < workers_->size(); ++i) {
+            auto& worker = workers_->getWorker(i);
+            if (&worker != nullptr && &worker.dispatcher() != nullptr) {
+                worker.dispatcher().post([new_master]() {
                     // Current thread-local pointer goes into GC queue to avoid stall
                     if (tls_btree_) {
                         std::lock_guard<std::mutex> gc_lock(gc_mutex_);
