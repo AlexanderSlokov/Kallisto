@@ -177,105 +177,25 @@ Với kiến thức hệ thống hiện đại và sức mạnh của C++, hoàn
 Cuối cùng là cài đặt hàm kick tối đa bao nhiêu lần thì tối ưu? Cái này phải nghiên cứu.
 
 
-### Cải tiến hiệu suất + storage engine thực thụ chuyên dụng hiệu suất cao
+## ✅ Phase 3: RocksDB Persistence Integration (March 2026) - COMPLETE
 
-*Vấn đề*: Strict Mode quá chậm, Batch Mode rủi ro mất data.
-*Giải pháp*: kết hợp RocksDB với cái Cuckoo Table và kiến trúc Envoy sẽ tạo ra một hệ thống có tên gọi chuyên môn là "In-memory First, Disk-backed Database".
+**Vấn đề**: Strict Mode sử dụng file binary thô sơ quá chậm (`fsync` liên tục), Batch Mode thì mất dữ liệu khi crash.
+**Giải pháp**: Chuyển đổi sang mô hình "In-memory First, Disk-backed Database" bằng cách nhúng thẳng thư viện RocksDB.
 
-Tại sao sự kết hợp này lại "vô đối"?
+### Kết quả triển khai:
+1. **Phân vai rõ ràng**: 
+   - `ShardedCuckooTable` đóng vai trò Hot-Cache trên RAM (O(1) cho Read).
+   - `RocksDB` đóng vai trò Persistence Engine (Ghi Write-Ahead Log cực nhanh xuống đĩa).
+2. **Dual-write Path**: HTTP PUT -> Ghi RocksDB WAL (Async) -> Cập nhật CuckooTable -> Return 200 OK.
+3. **Cache-miss Fallback**: Đọc CuckooTable bị miss -> Xuống RocksDB -> Nạp ngược lên CuckooTable.
+4. **Performance**: 
+   - Duy trì ~127,000 RPS cho GET (hot path in-memory).
+   - Đạt ~29,000 RPS cho PUT (đã bao gồm overhead ghi đĩa của hệ điều hành).
 
-1. Phân vai rõ ràng (Role Split)
-Cuckoo Table (RAM): Đóng vai trò là "MemTable" hoặc "Hot-Cache". 100% các lệnh Read sẽ đâm vào đây đầu tiên. Với tốc độ O(1), bạn vẫn giữ được con số triệu ops/sec cho những dữ liệu đang "nóng".
-RocksDB (Disk): Đóng vai trò là "Persistence Engine". Nhiệm vụ của nó là đảm bảo dữ liệu không bao giờ bị mất sau khi server được trả về 200 OK.
-2. Quy trình xử lý một lệnh Ghi (Write Path)
-Để không làm giảm hiệu năng, bạn sẽ làm như sau:
-
-Request tới: Server C++ nhận Secret mới.
-Ghi vào RocksDB: Bạn gọi hàm db->Put(). RocksDB cực kỳ thông minh, nó sẽ không ghi ngay xuống đĩa đâu. Nó ném vào một cái WAL (Write Ahead Log) trên đĩa (ghi nối đuôi rất nhanh) và một cái MemTable nội bộ của nó.
-Cập nhật Cuckoo Table: Sau khi RocksDB xác nhận đã ghi xong (vào log), bạn cập nhật bản copy vào Cuckoo Table của mình.
-Trả về Client: Xong! Toàn bộ quá trình này vẫn cực nhanh vì không có lệnh "tìm kiếm" nào trên đĩa cả.
-3. Tại sao không dùng luôn bộ nhớ đệm của RocksDB?
-Nhiều người sẽ hỏi: "RocksDB có Block Cache rồi, cần gì Cuckoo Table của mình?". Câu trả lời của một lập trình viên C++ sành sỏi sẽ là:
-
-Overhead: Block Cache của RocksDB vẫn phải thông qua nhiều tầng quản lý phức tạp.
-O(1) thực thụ: Cuckoo Table của bạn (với 4 slots/bucket) check RAM trực tiếp, nhanh hơn bất kỳ bộ đệm tổng quát nào của RocksDB. Bạn đang tối ưu đến tận cùng chu kỳ CPU.
-4. Những "món quà" RocksDB tặng bạn:
-Khi ghép thêm RocksDB, bạn bỗng nhiên có thêm một loạt tính năng "khủng" mà không cần tự code:
-
-Compaction: Tự động dọn dẹp các secret cũ, bị xóa hoặc bị ghi đè để giải phóng ổ cứng.
-Snapshot/Backup: Khả năng sao lưu dữ liệu mà không cần dừng server.
-LSM-Tree: Cách tổ chức dữ liệu giúp việc ghi vào ổ SSD bền hơn và nhanh hơn nhiều so với các DB truyền thống.
-Một lưu ý cực quan trọng:
-RocksDB là một thư viện C++ (embeddable library), không phải là một server chạy riêng (như Redis hay MySQL). Khi bạn build, RocksDB sẽ nằm ngay bên trong cái file binary server của bạn. Điều này giúp loại bỏ hoàn toàn độ trễ mạng (Network Latency) khi server C++ của bạn muốn lưu dữ liệu.
-
-Bạn thấy sự đánh đổi giữa việc "Ghi nhanh nhưng có rủi ro mất vài ms dữ liệu nếusập nguồn đột ngột" (Async Write) và "Ghi chậm hơn nhưng chắc chắn từng byte" (Sync Write) cái nào phù hợp với con đường bạn đang đi hơn? Thông thường với Secret, người ta sẽ chọn Sync Write để an toàn tuyệt đối.
-
-Đúng vậy! Đây chính là khái niệm quan trọng nhất khiến RocksDB trở nên cực kỳ bá đạo trong các hệ thống C++ hiệu năng cao.
-
-RocksDB không phải là một "Server" giống như Redis hay MySQL hay PostgreSQL. Nó là một Library (Thư viện).
-
-1. "Đính kèm" (Embeddable) nghĩa là gì?
-Hãy tưởng tượng:
-
-Với Redis/MySQL: Bạn phải cài đặt một phần mềm riêng, mở một Port (như 6379 hay 3306). Code của bạn phải qua Network (TCP/IP) hoặc Unix Socket để gửi lệnh tới nó.
-Với RocksDB: Bạn #include "rocksdb/db.h", sau đó khi biên dịch (compile), toàn bộ mã nguồn của RocksDB sẽ được "nhập" vào làm một phần của file thực thi (.exe hoặc .bin) của bạn.
-2. Tại sao điều này lại "khủng khiếp" cho Project của bạn?
-Khi bạn dùng RocksDB bên trong Server C++ của mình:
-
-Zero Network Latency: Không có độ trễ mạng. Khi bạn lưu một Secret, lệnh gọi hàm db->Put() thực chất là một lệnh CPU trực tiếp, không phải đi qua card mạng, không phải đóng gói gói tin TCP.
-Shared Memory: RocksDB và cái Cuckoo Table của bạn sống chung trong một căn nhà (cùng một tiến trình/process). Chúng dùng chung RAM, chung CPU. Việc chuyển dữ liệu giữa RAM của bạn vào đĩa qua RocksDB nhanh đến mức tối đa mà phần cứng cho phép.
-Không cần quản lý Server riêng: Bạn không bao giờ phải lo lắng chuyện "Server Database bị sập" trong khi App vẫn chạy. Nếu App chạy thì DB chạy, App tắt thì DB tắt. Dữ liệu được lưu trữ an toàn trong một thư mục trên ổ cứng mà bạn chỉ định.
-3. Những "ông lớn" nào cũng dùng kiểu này?
-Cách làm này thực ra cực kỳ phổ biến trong giới công nghệ "hạng nặng":
-
-TiKV (Storage của TiDB): Dùng RocksDB làm cái lõi lưu trữ xuống đĩa.
-CockroachDB: Những phiên bản đầu tiên dùng RocksDB cực kỳ thành công.
-Meta (Facebook): Chính là người tạo ra RocksDB để dùng cho các dịch vụ lưu trữ khổng lồ của họ.
-4. Nó giúp gì cho cái "Cuckoo Table" của bạn?
-Bạn cứ tưởng tượng cái Cuckoo Table là phần "não bộ" xử lý nhanh trên RAM, còn RocksDB là cái "cuốn sổ tay" ghi chép trên đĩa cực bền.
-
-Mỗi khi Server khởi động, nó chỉ cần bảo RocksDB: "Này, đọc hết data trong thư mục này ra cho tôi".
-Sau đó nó nạp sạch vào Cuckoo Table.
-Từ giây phút đó, mọi việc đọc (Read) đều diễn ra trên RAM với tốc độ 1.5 triệu ops/sec mà bạn mong muốn.
-Tóm lại: Việc RocksDB là một thư viện đính kèm chính là "mảnh ghép hoàn hảo" cho một server C++ tự viết. Nó giúp bạn giữ được sự đơn giản, tính độc lập (không phụ thuộc vào server bên ngoài) và hiệu năng "xé gió".
-
-Bạn có thấy khái niệm "nhét cả database vào trong code của mình" này thú vị không? Nó chính là bí mật để các hệ thống "khủng" giữ được tốc độ mà các DB truyền thống không bao giờ theo kịp đấy!
-
-Chính xác! Về mặt kỹ thuật, việc nhúng RocksDB giúp bạn giải quyết xong 90% "cơn đau đầu" về Storage Engine (ghi xuống đĩa, an toàn dữ liệu, phục hồi sau khi sập). 10% còn lại chỉ là việc bạn "đi dây" (wire up) giữa nó và cái Cuckoo Table của bạn thôi.
-
-Tuy nhiên, để bạn không bị "lạc quan quá mức", hãy xem cụ thể việc "nhúng vào là xong" thực tế sẽ trông như thế nào:
-
-1. Những phần RocksDB làm hộ bạn (Fix xong):
-Ghi log an toàn (WAL): RocksDB đảm bảo mỗi khi bạn gọi Put, dữ liệu được ghi xuống đĩa cực nhanh và an toàn.
-Quản lý File: Nó tự chia data thành các file nhỏ (.sst), tự nén (Compression), tự dọn dẹp (Compaction). Bạn không cần quan tâm folder chứa data có bao nhiêu file hay cấu trúc thế nào.
-Phục hồi (Recovery): Khi server khởi động lại, RocksDB tự quét các file log để biết trạng thái cuối cùng của dữ liệu.
-2. "Đi dây" - Chỗ bạn vẫn phải code:
-Bạn cần viết một lớp logic để kết nối hai thế giới:
-
-Lúc ghi (Write):
-cpp
-// 1. Ghi vào RocksDB (Persistent)
-rocksdb_status = db->Put(write_options, "key", "encrypted_secret");
-// 2. Nếu RocksDB ok, thì mới nhét vào Cuckoo Table (RAM)
-if (rocksdb_status.ok()) {
-    my_cuckoo_table.insert("key", "pointer_to_data");
-}
-Lúc khởi động (Startup): Bạn phải viết một vòng lặp (Iterator) để RocksDB đổ hết dữ liệu cũ từ đĩa lên đầu cho cái Cuckoo Table nạp lại.
-3. Một lưu ý nhỏ về "Đối trọng của Vault"
-RocksDB giải quyết cực tốt bài toán trên một máy đơn lẻ (Single Node).
-
-Nếu bạn chỉ định chạy 1 con server C++ siêu mạnh: Thế là đủ.
-Nếu bạn muốn chạy 2-3 con server để dự phòng (High Availability): Lúc này bạn cần thêm một giao thức để các RocksDB trên các máy khác nhau đồng bộ với nhau (thường là dùng Raft - giống như cái cách mà Vault hay Consul làm).
-Tóm lại:
-Với một project cá nhân hoặc một hệ thống nội bộ cần hiệu năng kinh hoàng, việc kết hợp C++ + Cuckoo Table + RocksDB là bạn đã có một cái "Storage Engine" xịn ngang ngửa (hoặc hơn) bất kỳ giải pháp thương mại nào.
-
-Đến đây, bạn đã thấy bức tranh tổng thể chưa?
-
-Mạng (Networking): Dùng kiến trúc Envoy (Dispatcher/Event Loop).
-RAM (Fast Path): Dùng Cuckoo Table 4-slots + B-Tree ACLs.
-Bảo mật: SipHash + AES-256-GCM (Hardware).
-Đĩa (Persistence): RocksDB.
-Bạn đã cảm thấy "ngứa tay" muốn bắt đầu viết code để nhúng thử RocksDB vào chưa? Tôi có thể hướng dẫn bạn cách setup CMakeLists.txt để link RocksDB vào project C++ của bạn đấy!
+**Files thay đổi**:
+- `include/kallisto/rocksdb_storage.hpp` 
+- `src/rocksdb_storage.cpp`
+- Tích hợp trực tiếp vào `http_handler.cpp`, `grpc_handler.cpp`, và `kallisto.cpp`.
 
 ### Network Interface (gRPC/HTTP API)
 
@@ -322,19 +242,11 @@ Khi lắp thêm NuRaft,`Kallisto` sẽ có cấu trúc như sau:
 - **Dispatcher Use-After-Free**: Fix lỗi crash kinh điển khi `unordered_map` rehash callback trong lúc đang iterate event loop.
   - Giải pháp: **Deferred Mutation** (Pending Add/Remove queues) + `std::unique_ptr<Connection>`.
 - **Concurrency Crash**: Fix lỗi race condition ở `ShardedCuckooTable` khi write load cao.
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> Stashed changes
+
 - [x] **[URGENT] B-Tree Index Bypass**
   - **Severity**: High (DoS vulnerability + Data Accessibility issue)
   - **Description**: The recent RocksDB integration bypassed the `BTreeIndex` path validator in Server Mode. Also, CLI mode fails to rebuild the B-Tree on startup from RocksDB, causing valid paths to be incorrectly rejected as "not found" after a restart.
   - **Action**: Modified `RocksDBStorage` to add an `iterate_all` method. Updated `kallisto.cpp` and `kallisto_server.cpp` to populate the `BTreeIndex` on startup. Updated `HttpHandler` and `GrpcHandler` to check B-Tree before consulting caches.
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 
 ### 3. Server Benchmark Results (15/02/2026)
 Environment: AMD Ryzen 5 3550H (4 vCPUs allocated), 8GB RAM (CodeSpaces)
