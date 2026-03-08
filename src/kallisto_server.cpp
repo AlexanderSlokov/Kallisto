@@ -13,7 +13,7 @@
 #include "kallisto/server/http_handler.hpp"
 #include "kallisto/sharded_cuckoo_table.hpp"
 #include "kallisto/rocksdb_storage.hpp"
-#include "kallisto/btree_index.hpp"
+#include "kallisto/tls_btree_manager.hpp"
 #include "kallisto/logger.hpp"
 
 #include <csignal>
@@ -91,9 +91,12 @@ int main(int argc, char** argv) {
     auto storage = std::make_shared<ShardedCuckooTable>(1024 * 1024);
     info("[SERVER] ShardedCuckooTable created (1M buckets, 64 shards)");
     
+    // Create worker pool FIRST so it can be passed to TLS Manager
+    auto pool = createWorkerPool(num_workers);
+
     // Create B-Tree firewall (O(logN) gateway)
-    auto path_index = std::make_shared<BTreeIndex>(5);
-    info("[SERVER] BTreeIndex created");
+    auto path_index = std::make_shared<TlsBTreeManager>(5, pool.get());
+    info("[SERVER] TlsBTreeManager created");
 
     // Create RocksDB persistence layer
     // Parse --db-path if provided
@@ -111,7 +114,7 @@ int main(int argc, char** argv) {
         // Populate B-Tree from RocksDB so cache-miss aren't blocked
         size_t count = 0;
         persistence->iterate_all([&](const SecretEntry& entry) {
-            path_index->insert_path(entry.path);
+            path_index->update(entry.path);
             count++;
         });
         info("[SERVER] Rebuilt B-Tree index with " + std::to_string(count) + " paths");
@@ -119,9 +122,6 @@ int main(int argc, char** argv) {
         warn("[SERVER] RocksDB persistence unavailable — running in-memory only");
         persistence = nullptr;  // Handlers check for nullptr
     }
-    
-    // Create worker pool
-    auto pool = createWorkerPool(num_workers);
     
     // Store handlers to prevent premature destruction
     std::vector<std::shared_ptr<server::HttpHandler>> http_handlers;
