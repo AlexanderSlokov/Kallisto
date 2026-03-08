@@ -30,9 +30,14 @@ RUN git clone https://github.com/microsoft/vcpkg.git $VCPKG_ROOT \
 WORKDIR /app
 COPY . .
 
-# Configure and build all binaries
+# Configure and build all binaries using the custom triplet to avoid building debug
 RUN mkdir -p build && cd build \
-    && cmake -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release -DVCPKG_BUILD_TYPE=release .. \
+    && cmake -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
+             -DCMAKE_BUILD_TYPE=Release \
+             -DVCPKG_TARGET_TRIPLET=x64-linux-release \
+             -DVCPKG_HOST_TRIPLET=x64-linux-release \
+             -DVCPKG_OVERLAY_TRIPLETS=/app/custom-triplets \
+             .. \
     && make -j$(nproc)
 
 # ==============================================================================
