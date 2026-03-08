@@ -39,6 +39,43 @@ export VCPKG_ROOT=/usr/local/vcpkg
 make build-server
 ```
 
+## Docker Support
+
+Kallisto provides a fully optimized multi-stage `Dockerfile` to build and run the server without polluting your host environment.
+
+### 1. Build the Production Image
+
+This will compile the C++ source and package it into an ultra-small Ubuntu compatible image.
+
+```bash
+docker build -t kallisto-server:latest .
+# Or using Makefile: make docker-build
+```
+
+### 2. Run Tests in Docker Container
+
+If you want an isolated environment to run the test suite:
+
+```bash
+docker build --target tester -t kallisto-tester:latest .
+docker run --rm kallisto-tester:latest make test
+# Or using Makefile: make docker-test
+```
+
+### 3. Run the Production Server
+
+Run the Kallisto server in the background, mounting a volume for RocksDB persistence:
+
+```bash
+docker run -d \
+  --name kallisto \
+  -p 8200:8200 \
+  -p 8201:8201 \
+  -v my-kallisto-data:/data/kallisto/rocksdb \
+  kallisto-server:latest
+# Or using Makefile: make docker-run
+```
+
 ## CLI Mode (Interactive REPL)
 
 Start the interactive CLI:
@@ -254,6 +291,9 @@ grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
 | `make bench-server` | HTTP benchmark (wrk) — GET/PUT/MIXED |
 | `make clean` | Remove build artifacts |
 | `make logs` | View server logs |
+| `make docker-build` | Build the production Docker image |
+| `make docker-test` | Run tests in an isolated Docker container |
+| `make docker-run` | Run the Kallisto Docker container |
 
 # Persistence — RocksDB
 

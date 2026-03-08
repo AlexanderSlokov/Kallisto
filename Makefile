@@ -43,6 +43,11 @@ help:
 	@echo "  Utilities:"
 	@echo "    make clean           - Remove build artifacts"
 	@echo "    make logs            - View the server logs"
+	@echo ""
+	@echo "  Docker:"
+	@echo "    make docker-build    - Build the production Docker image"
+	@echo "    make docker-test     - Build test image and run tests in container"
+	@echo "    make docker-run      - Run the production Docker container"
 
 # Core build (without gRPC - always works)
 build:
@@ -131,3 +136,24 @@ logs:
 	else \
 		echo "No logs found yet. Run 'make run' first."; \
 	fi
+
+# ===========================================================================
+# Docker Integration
+# ===========================================================================
+docker-build:
+	@echo "\n--- Building Kallisto Docker Image ---\n"
+	@docker build -t kallisto-server:latest .
+
+docker-test:
+	@echo "\n--- Running Tests in Docker ---\n"
+	@docker build --target tester -t kallisto-tester:latest .
+	@docker run --rm kallisto-tester:latest make test
+
+docker-run:
+	@echo "\n--- Running Kallisto Docker Container (Detached) ---\n"
+	@docker run -d \
+	  --name kallisto \
+	  -p 8200:8200 \
+	  -p 8201:8201 \
+	  -v my-kallisto-data:/data/kallisto/rocksdb \
+	  kallisto-server:latest
