@@ -17,6 +17,7 @@ add_library(kallisto_lib
     src/siphash.cpp
     src/cuckoo_table.cpp
     src/btree_index.cpp
+    src/tls_btree_manager.cpp
     src/storage_engine.cpp
     src/rocksdb_storage.cpp
     src/kallisto.cpp

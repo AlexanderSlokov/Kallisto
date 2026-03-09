@@ -4,8 +4,6 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
-#include <shared_mutex>
-#include <mutex>
 
 namespace kallisto {
 
@@ -20,6 +18,11 @@ public:
 	* => Each node can has between 2 and 5 keys.
 	*/
 	BTreeIndex(int degree = 3);
+
+	/**
+	* Deep Copy Constructor
+	*/
+	BTreeIndex(const BTreeIndex& other);
 
 	/**
 	* Inserts a path into the index.
@@ -42,11 +45,17 @@ private:
 		std::vector<std::unique_ptr<Node>> children;
 
 		Node(bool leaf = true) : is_leaf(leaf) {}
+
+		// Deep Copy Constructor
+		Node(const Node& other) : is_leaf(other.is_leaf), keys(other.keys) {
+			for (const auto& child : other.children) {
+				children.push_back(std::make_unique<Node>(*child));
+			}
+		}
 	};
 
 	std::unique_ptr<Node> root;
 	int min_degree; // Fixed the cryptic "t"
-	mutable std::shared_mutex rw_lock_;
 
 	/**
 	* Splits a child node into two nodes.

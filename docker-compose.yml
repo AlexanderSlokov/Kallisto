@@ -9,8 +9,8 @@ services:
     ports:
       - "8200:8200" # HTTP API (Vault compatible)
       - "8201:8201" # gRPC API
-    volumes:
-      - kallisto-data:/data/kallisto/rocksdb
+    # volumes:
+    #   - kallisto-data:/data/kallisto/rocksdb
     environment:
       - WORKERS=4
       - DB_PATH=/data/kallisto/rocksdb
@@ -33,12 +33,9 @@ services:
       target: tester
     image: ghcr.io/alexanderslokov/kallisto-tester:latest
     container_name: kallisto-tester
-    depends_on:
-      kallisto:
-        condition: service_healthy
     # We override the default entrypoint to run the benchmark script
     # It waits for the server, seeds data, and runs wrk tests against the 'kallisto' service
-    command: bash -c "export HTTP_PORT=8200 && export SERVER_BIN=skipped && sleep 2 && cd /app && wrk -t4 -c200 -d10s -s bench/wrk_get.lua http://kallisto:8200"
+    command: bash -c "make bench-server"
     profiles: ["bench"] # This service won't start by default unless explicitly requested
     networks:
       - kallisto-net

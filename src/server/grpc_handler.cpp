@@ -100,7 +100,7 @@ private:
 GrpcHandler::GrpcHandler(event::Dispatcher& dispatcher,
                          std::shared_ptr<ShardedCuckooTable> storage,
                          std::shared_ptr<RocksDBStorage> persistence,
-                         std::shared_ptr<BTreeIndex> path_index)
+                         std::shared_ptr<TlsBTreeManager> path_index)
     : dispatcher_(dispatcher)
     , storage_(std::move(storage))
     , persistence_(std::move(persistence))
@@ -231,7 +231,7 @@ void GrpcHandler::spawnGet() {
         [stor, pers, p_idx](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
                grpc::Status* status) {
             // Step 0: B-Tree validation
-            if (p_idx && !p_idx->validate_path(req.path())) {
+            if (p_idx && !p_idx->get_local()->validate_path(req.path())) {
                 kallisto::warn("[GRPC] B-Tree validation failed for GET path: " + req.path());
                 *status = grpc::Status(grpc::StatusCode::NOT_FOUND, "Secret not found (B-Tree reject)");
                 return;
@@ -283,7 +283,7 @@ void GrpcHandler::spawnPut() {
                grpc::Status* status) {
             // Step 0: Register path in B-Tree index
             if (p_idx) {
-                p_idx->insert_path(req.path());
+                p_idx->update(req.path());
             }
 
             SecretEntry entry;
