@@ -9,12 +9,28 @@
 set -euo pipefail
 
 # ── Config ──────────────────────────────────────────────────────────────
-THREADS=${1:-4}
-CONNECTIONS=${2:-200}
-DURATION=${3:-10s}
+# Auto-detect PHYSICAL CPU cores (ignoring hyper-threading logical processors)
+# We count unique pairs of (Core, Socket) to support multi-socket systems safely.
+if command -v lscpu &> /dev/null; then
+    TOTAL_CORES=$(lscpu -b -p=Core,Socket | grep -v '^#' | sort -u | wc -l)
+else
+    # Fallback if lscpu doesn't exist (rare in Ubuntu/Debian containers)
+    TOTAL_CORES=$(nproc)
+fi
+
+HALF_CORES=$(( TOTAL_CORES / 2 ))
+
+# Fallback if somehow nproc returns 1 or 0
+if [ "$HALF_CORES" -lt 1 ]; then
+    HALF_CORES=1
+fi
+
+THREADS=${1:-$HALF_CORES}     # wrk threads (default: half total cores)
+WORKERS=${2:-$HALF_CORES}     # Kallisto workers (default: half total cores)
+CONNECTIONS=${3:-200}
+DURATION=${4:-10s}
 HTTP_PORT=8200
 GRPC_PORT=8201
-WORKERS=4
 SERVER_BIN="./build/kallisto_server"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -29,12 +45,15 @@ NC='\033[0m'
 banner() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${BOLD}     KALLISTO SERVER LOAD TEST (wrk)                        ${NC}${CYAN}║${NC}"
+    echo -e "${CYAN}║${BOLD}     KALLISTO SERVER LOAD TEST (wrk)                          ${NC}${CYAN}║${NC}"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  Threads:     ${YELLOW}${THREADS}${NC}                                              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  Connections: ${YELLOW}${CONNECTIONS}${NC}                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  Duration:    ${YELLOW}${DURATION}${NC}                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  Workers:     ${YELLOW}${WORKERS}${NC}                                              ${CYAN}║${NC}"
+    
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Total Cores:" "$TOTAL_CORES"
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "wrk Threads:" "$THREADS"
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Kal Workers:" "$WORKERS"
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Connections:" "$CONNECTIONS"
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Duration:" "$DURATION"
+    
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
