@@ -136,7 +136,15 @@ Khi có gRPC → WorkerPool sẽ được tích hợp tự nhiên.
 
 ---
 
-## 1. Security Layer
+## 1. Security Layer & Testing Infrastructure
+
+### Migrate Unit Testing to Google Test (GTest) & Google Mock
+
+**Vấn đề**: Framework test hiện tại là một file macro C++ tối giản tự viết. Mặc dù nhẹ nhưng thiếu tính năng mở rộng khi dự án lớn dần, không support mocking cho network/gRPC để cô lập bài test.
+
+**Giải pháp**: Tích hợp Google Test (gtest) và Google Mock (gmock) thông qua `vcpkg`. Chuyển đổi các bài test hiện tại trong thư mục `tests/` sang dạng `TEST(...)` hoặc `TEST_F(...)` chuẩn của GTest. 
+
+**Mục tiêu**: Nâng chuẩn Enterprise-grade giống Envoy Proxy, cho phép viết test rành mạch hơn và setup các Fixture tests cho server.
 
 ### Encryption-at-Rest (Mã hóa lưu trữ)
 
