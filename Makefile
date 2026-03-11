@@ -67,9 +67,15 @@ run-server:
 	@echo "\n--- Starting Kallisto Server (RocksDB: $(DB_PATH)) ---\n"
 	@./$(BUILD_DIR)/kallisto_server --workers=$(shell nproc) --db-path=$(DB_PATH)
 
-test:
-	@echo "\n--- Running Unit Tests ---\n"
+test: test-main test-rocksdb
+
+test-main:
+	@echo "\n--- Running Main Unit Tests ---\n"
 	@./$(BUILD_DIR)/kallisto_test
+
+test-rocksdb: build-server
+	@echo "\n--- Running RocksDB Unit Tests ---\n"
+	@./$(BUILD_DIR)/test_rocksdb
 
 test-listener: build-server
 	@echo "\n--- Running SO_REUSEPORT Listener Tests ---\n"
