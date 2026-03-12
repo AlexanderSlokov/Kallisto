@@ -67,15 +67,23 @@ run-server:
 	@echo "\n--- Starting Kallisto Server (RocksDB: $(DB_PATH)) ---\n"
 	@./$(BUILD_DIR)/kallisto_server --workers=$(shell nproc) --db-path=$(DB_PATH)
 
-test: test-main test-rocksdb
+test: test-main test-rocksdb test-btree-rcu test-sharded-cuckoo
 
-test-main:
+test-main: build-server
 	@echo "\n--- Running Main Unit Tests ---\n"
 	@./$(BUILD_DIR)/kallisto_test
 
 test-rocksdb: build-server
 	@echo "\n--- Running RocksDB Unit Tests ---\n"
 	@./$(BUILD_DIR)/test_rocksdb
+
+test-btree-rcu: build-server
+	@echo "\n--- Running BTree RCU Unit Tests ---\n"
+	@./$(BUILD_DIR)/test_btree_rcu
+
+test-sharded-cuckoo: build-server
+	@echo "\n--- Running Sharded Cuckoo Unit Tests ---\n"
+	@./$(BUILD_DIR)/test_sharded_cuckoo
 
 test-listener: build-server
 	@echo "\n--- Running SO_REUSEPORT Listener Tests ---\n"

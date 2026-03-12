@@ -54,8 +54,12 @@ enable_testing()
 find_package(GTest CONFIG REQUIRED)
 add_executable(kallisto_test tests/test_main.cpp)
 add_executable(test_rocksdb tests/test_rocksdb.cpp)
+add_executable(test_btree_rcu tests/test_btree_rcu.cpp)
+add_executable(test_sharded_cuckoo tests/test_sharded_cuckoo.cpp)
 target_link_libraries(kallisto_test PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
 target_link_libraries(test_rocksdb PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
+target_link_libraries(test_btree_rcu PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
+target_link_libraries(test_sharded_cuckoo PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
 
 # Add test command
 
