@@ -51,10 +51,11 @@ target_link_libraries(kallisto kallisto_lib)
 
 # Tests
 enable_testing()
+find_package(GTest CONFIG REQUIRED)
 add_executable(kallisto_test tests/test_main.cpp)
 add_executable(test_rocksdb tests/test_rocksdb.cpp)
-target_link_libraries(kallisto_test kallisto_lib)
-target_link_libraries(test_rocksdb kallisto_lib)
+target_link_libraries(kallisto_test PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
+target_link_libraries(test_rocksdb PRIVATE kallisto_lib GTest::gtest GTest::gmock GTest::gtest_main)
 
 # Add test command
 
