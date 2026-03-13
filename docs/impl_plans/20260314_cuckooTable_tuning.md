@@ -137,3 +137,42 @@ Nếu S = 256:
 > **"The choice of `NUM_SHARDS = 64` was optimal for a 64-core deployment model (2022–2023 cloud standard of AWS c5.18xlarge with 72 vCPU). However, with AMD EPYC 9965 offering 192 physical cores and GCP C4D reaching 384 vCPUs in 2025, a forward-compatible design should adopt `NUM_SHARDS = 256` or `512` as a power-of-2 constant, preserving the bitwise modulo optimization (`& (S-1)`) while reducing per-shard lock contention from ~64% to ~22% under 192-worker load."**
 
 **Khuyến nghị của tôi:** Nâng `NUM_SHARDS = 256` ngay bây giờ là safe, không breaking, và cover cloud standard đến 2027+.
+
+---
+
+# Note No.2
+
+Đúng vậy — và đây chính xác là giá trị của phân tích vừa rồi. Để tóm gọn lại ý tưởng:
+
+**Vấn đề cốt lõi:** Kallisto hiện tại hardcode `NUM_SHARDS = 64` và `total_capacity = 1M` trong code. Người dùng deploy lên server 192-core sẽ không biết rằng con số đó đã bottleneck ngay từ thiết kế.
+
+**Cái ta cần làm là tạo một Tuning Matrix** — một bảng tra cứu khoa học để người dùng answer 2 câu hỏi:
+
+1. **"Tôi có bao nhiêu CPU cores?"** → Chọn `NUM_SHARDS`
+2. **"Tôi muốn lưu bao nhiêu secrets?"** → Chọn `total_capacity`
+
+Sau đó map chúng sang các tham số khởi động:
+```bash
+./kallisto_server --workers=N --shards=S --capacity=C
+```
+
+**Flow của document:**
+```
+Hardware Profile  →  Tuning Matrix  →  Config Parameters  →  Expected Performance
+(cores, RAM)         (lookup table)     (CLI flags)            (latency, throughput)
+```
+
+**Để làm được Tuning Matrix chính xác, ta cần:**
+
+| Bước | Việc cần làm |
+|------|-------------|
+| ① | Công thức [P(lock_wait | W, S)](cci:2://file:///workspaces/kallisto/include/kallisto/event/worker.hpp:97:0-128:1) → đã có ✅ |
+| ② | Công thức [memory(S, C)](cci:1://file:///workspaces/kallisto/src/sharded_cuckoo_table.cpp:47:0-62:1) → đã có ✅ |
+| ③ | Công thức `Speedup(W, S)` → đã có ✅ |
+| ④ | Bảng tra lookup cho 4–5 hardware tier | ← cần làm |
+| ⑤ | Validate bằng benchmark thực tế | ← cần làm |
+
+Bạn muốn tôi:
+- **(A)** Viết luôn Tuning Matrix document hoàn chỉnh vào [WHITEPAPER.md](cci:7://file:///workspaces/kallisto/WHITEPAPER.md:0:0-0:0) / docs?
+- **(B)** Code thêm CLI flag `--shards=N` vào server để người dùng có thể tune được?
+- **(C)** Cả hai — document + implementation?
