@@ -52,7 +52,9 @@ target_link_libraries(kallisto kallisto_lib)
 # Tests
 enable_testing()
 add_executable(kallisto_test tests/test_main.cpp)
+add_executable(test_rocksdb tests/test_rocksdb.cpp)
 target_link_libraries(kallisto_test kallisto_lib)
+target_link_libraries(test_rocksdb kallisto_lib)
 
 # Add test command
 
