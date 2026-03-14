@@ -24,5 +24,5 @@
   "postCreateCommand": "sudo chown -R vscode:vscode /workspaces",
   
   // Script fix lỗi Antigravity (đã gộp thành 1 dòng)
-  "postStartCommand": "nohup bash -c 'SERVER_DIR=\"$HOME/.antigravity-server/bin\"; mkdir -p \"$SERVER_DIR\"; while true; do for dir in \"$SERVER_DIR\"/*-*; do if [ -d \"$dir\" ]; then dirname=$(basename \"$dir\"); commit=\"${dirname#*-}\"; symlink=\"$SERVER_DIR/$commit\"; if [ ! -e \"$symlink\" ]; then ln -s \"$dir\" \"$symlink\" 2>/dev/null; fi; fi; done; sleep 5; done' > /dev/null 2>&1 &"
+  // "postStartCommand": "nohup bash -c 'SERVER_DIR=\"$HOME/.antigravity-server/bin\"; mkdir -p \"$SERVER_DIR\"; while true; do for dir in \"$SERVER_DIR\"/*-*; do if [ -d \"$dir\" ]; then dirname=$(basename \"$dir\"); commit=\"${dirname#*-}\"; symlink=\"$SERVER_DIR/$commit\"; if [ ! -e \"$symlink\" ]; then ln -s \"$dir\" \"$symlink\" 2>/dev/null; fi; fi; done; sleep 5; done' > /dev/null 2>&1 &"
 }
