@@ -17,7 +17,7 @@
     pkgs.curl
     pkgs.zip
     pkgs.unzip
-    pkgs.tar
+    pkgs.gnutar
     pkgs.git
 
     # Project dependencies/tools (for protoc compiler, etc.)
