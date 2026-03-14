@@ -2,7 +2,7 @@
 # see: https://firebase.google.com/docs/studio/customize-workspace
 { pkgs, ... }: {
   # Which nixpkgs channel to use.
-  channel = "stable-24.05"; # or "unstable"
+  channel = "stable-25.05"; # or "unstable"
 
   # Use https://search.nixos.org/packages to find packages
   packages = [
@@ -12,6 +12,13 @@
     pkgs.cmake
     pkgs.pkg-config
     pkgs.gnumake # Đã sửa từ pkgs.make thành pkgs.gnumake
+
+    # Vcpkg dependencies
+    pkgs.curl
+    pkgs.zip
+    pkgs.unzip
+    pkgs.tar
+    pkgs.git
 
     # Project dependencies/tools (for protoc compiler, etc.)
     pkgs.protobuf
@@ -30,12 +37,13 @@
     VCPKG_FEATURE_FLAGS = "manifests";
   };
 
-  # Gom tất cả cấu hình đặc thù của Firebase Studio/IDX vào block 'idx'
+  # BẮT BUỘC: Gom tất cả vào block idx
   idx = {
     workspace = {
       # Run script on workspace start
       onCreate = {
         # This script clones and bootstraps vcpkg if it's not already present.
+        # vcpkg is used to manage C++ dependencies defined in vcpkg.json.
         "01-bootstrap-vcpkg" = ''
           if [ ! -f "$HOME/vcpkg/vcpkg" ]; then
             echo "Cloning and bootstrapping vcpkg..."
@@ -44,6 +52,10 @@
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           else
             echo "vcpkg is already available."
+            # In case bootstrap failed previously
+            if [ ! -f "$HOME/vcpkg/vcpkg" ]; then
+                "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            fi
           fi
         '';
         # Provide clear instructions to the user on how to proceed.
@@ -63,20 +75,18 @@
       };
     };
 
-    # Cấu trúc Preview chuẩn của IDX
+    # Cấu trúc Preview chuẩn
     previews = {
       enable = true;
       previews = {
-        kallisto-http = {
-          # Firebase Studio previews yêu cầu một command để chạy server
-          # Bạn có thể đổi command này thành lệnh start server HTTP của bạn
-          command = ["echo" "Chạy HTTP Server tại đây..."]; 
-          env = { PORT = "8080"; };
+        kallisto-grpc = {
+          command = ["echo" "Chạy Kallisto gRPC..."];
+          env = { PORT = "50051"; };
           manager = "web";
         };
-        kallisto-grpc = {
-          command = ["echo" "Chạy gRPC Server tại đây..."];
-          env = { PORT = "50051"; };
+        kallisto-http = {
+          command = ["echo" "Chạy Kallisto HTTP..."];
+          env = { PORT = "8080"; };
           manager = "web";
         };
       };
