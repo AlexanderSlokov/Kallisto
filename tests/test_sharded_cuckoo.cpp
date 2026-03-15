@@ -42,7 +42,7 @@ TEST_F(ShardedCuckooTableTest, HashDistribution) {
 
     for (int i = 0; i < 10000; ++i) {
         std::string key = "dist_key_" + std::to_string(i);
-        size_t shard_id = table.get_shard_index(key);
+        size_t shard_id = table.getShardIndex(key);
 
         ASSERT_LT(shard_id, kallisto::ShardedCuckooTable::NUM_SHARDS);
         shard_counts[shard_id]++;

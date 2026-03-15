@@ -37,7 +37,7 @@ bool TlsBTreeManager::update(const std::string& path) {
         auto clone = std::make_shared<BTreeIndex>(*master_btree_);
 
         // Insert new path
-        clone->insert_path(path);
+        clone->insertPath(path);
 
         // Update master
         master_btree_ = clone;

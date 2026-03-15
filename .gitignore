@@ -33,5 +33,4 @@
 /build
 /vcpkg_installed
 ghz-web
-*.txt
 /.idea

@@ -18,37 +18,37 @@ protected:
 
 TEST_F(BTreeIndexTest, BasicInsertionAndValidation) {
     // Scenario 1: Basic Insert
-    EXPECT_TRUE(btree.insert_path("/api/v1/users"));
-    EXPECT_TRUE(btree.insert_path("/api/v1/auth"));
+    EXPECT_TRUE(btree.insertPath("/api/v1/users"));
+    EXPECT_TRUE(btree.insertPath("/api/v1/auth"));
 
     // Scenario 2: Validate existing
-    EXPECT_TRUE(btree.validate_path("/api/v1/users"));
-    EXPECT_TRUE(btree.validate_path("/api/v1/auth"));
+    EXPECT_TRUE(btree.validatePath("/api/v1/users"));
+    EXPECT_TRUE(btree.validatePath("/api/v1/auth"));
 
     // Scenario 3: Validate missing
-    EXPECT_FALSE(btree.validate_path("/api/v1/settings"));
+    EXPECT_FALSE(btree.validatePath("/api/v1/settings"));
 }
 
 TEST_F(BTreeIndexTest, DuplicateInsertion) {
-    EXPECT_TRUE(btree.insert_path("/api/v1/duplicate"));
-    // BTreeIndex::insert_path currently returns 'true' even if the path already exists
+    EXPECT_TRUE(btree.insertPath("/api/v1/duplicate"));
+    // BTreeIndex::insertPath currently returns 'true' even if the path already exists
     // (it just returns early if search() is true). So we expect true.
-    EXPECT_TRUE(btree.insert_path("/api/v1/duplicate")) << "Should return true (no-op) on duplicate insert per current implementation";
-    EXPECT_TRUE(btree.validate_path("/api/v1/duplicate"));
+    EXPECT_TRUE(btree.insertPath("/api/v1/duplicate")) << "Should return true (no-op) on duplicate insert per current implementation";
+    EXPECT_TRUE(btree.validatePath("/api/v1/duplicate"));
 }
 
 TEST_F(BTreeIndexTest, HighVolumeSplitting) {
     // With degree t=3, nodes split quickly. 
     // Inserting 100 sequential paths forces multiple root splits.
     for (int i = 0; i < 100; ++i) {
-        btree.insert_path("/path/" + std::to_string(i));
+        btree.insertPath("/path/" + std::to_string(i));
     }
 
     for (int i = 0; i < 100; ++i) {
-        EXPECT_TRUE(btree.validate_path("/path/" + std::to_string(i)));
+        EXPECT_TRUE(btree.validatePath("/path/" + std::to_string(i)));
     }
     
-    EXPECT_FALSE(btree.validate_path("/path/100"));
+    EXPECT_FALSE(btree.validatePath("/path/100"));
 }
 
 // =========================================================================================
@@ -92,7 +92,7 @@ protected:
 TEST_F(TlsBTreeManagerTest, InitialSnapshot) {
     auto local_btree = manager->get_local();
     EXPECT_NE(local_btree, nullptr);
-    EXPECT_FALSE(local_btree->validate_path("/missing/path"));
+    EXPECT_FALSE(local_btree->validatePath("/missing/path"));
 }
 
 TEST_F(TlsBTreeManagerTest, UpdateCreatesNewSnapshot) {
@@ -100,10 +100,10 @@ TEST_F(TlsBTreeManagerTest, UpdateCreatesNewSnapshot) {
     
     EXPECT_TRUE(manager->update("/new/path"));
 
-    EXPECT_FALSE(old_snapshot->validate_path("/new/path"));
+    EXPECT_FALSE(old_snapshot->validatePath("/new/path"));
 
     auto new_snapshot = manager->get_local();
-    EXPECT_TRUE(new_snapshot->validate_path("/new/path"));
+    EXPECT_TRUE(new_snapshot->validatePath("/new/path"));
     
     EXPECT_NE(old_snapshot.get(), new_snapshot.get());
 }
@@ -115,7 +115,7 @@ TEST_F(TlsBTreeManagerTest, GarbageCollection) {
 
     manager->drain_garbage();
     
-    EXPECT_FALSE(initial_snapshot->validate_path("/gc/path")); 
+    EXPECT_FALSE(initial_snapshot->validatePath("/gc/path")); 
 }
 
 TEST_F(TlsBTreeManagerTest, ThreadSafety) {
@@ -133,7 +133,7 @@ TEST_F(TlsBTreeManagerTest, ThreadSafety) {
             // In a real scenario without an event loop pushing to tls_btree_,
             // secondary threads will constantly fallback to pulling the master_btree_ lock.
             // This is safe but not entirely lock-free as designed for Worker threads.
-            local->validate_path("/thread/safe/" + std::to_string(i)); 
+            local->validatePath("/thread/safe/" + std::to_string(i)); 
         }
     });
 
@@ -149,6 +149,6 @@ TEST_F(TlsBTreeManagerTest, ThreadSafety) {
     auto final_snapshot = manager->get_local();
     
     for (int i = 0; i < NUM_ITERATIONS; ++i) {
-        EXPECT_TRUE(final_snapshot->validate_path("/thread/safe/" + std::to_string(i)));
+        EXPECT_TRUE(final_snapshot->validatePath("/thread/safe/" + std::to_string(i)));
     }
 }

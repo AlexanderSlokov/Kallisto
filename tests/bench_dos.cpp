@@ -134,7 +134,7 @@ void run_btree_gate_test() {
     
     // Setup: Valid B-Tree
     kallisto::BTreeIndex btree(5);
-    for(int i=0; i<100; ++i) btree.insert_path("/valid/path/" + std::to_string(i));
+    for(int i=0; i<100; ++i) btree.insertPath("/valid/path/" + std::to_string(i));
 
     // Attack: 10,000 requests to INVALID paths
     std::vector<std::string> invalid_paths;
