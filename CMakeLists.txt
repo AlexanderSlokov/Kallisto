@@ -10,6 +10,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 add_compile_options(-march=native -pthread)
 
+option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+
 include_directories(include)
 
 # Create a library for core logic to share between main app and tests
@@ -18,7 +20,6 @@ add_library(kallisto_lib
     src/cuckoo_table.cpp
     src/btree_index.cpp
     src/tls_btree_manager.cpp
-    src/storage_engine.cpp
     src/rocksdb_storage.cpp
     src/kallisto.cpp
     helpers/logger.cpp
@@ -34,6 +35,11 @@ add_library(kallisto_lib
 
 # Link pthread for threading support
 target_link_libraries(kallisto_lib PRIVATE pthread)
+
+if(ENABLE_COVERAGE)
+    target_compile_options(kallisto_lib PUBLIC --coverage -O0 -g)
+    target_link_options(kallisto_lib PUBLIC --coverage)
+endif()
 
 # RocksDB (persistence layer)
 find_package(RocksDB CONFIG)
@@ -142,6 +148,11 @@ if(Protobuf_FOUND AND gRPC_FOUND)
        src/server/http_handler.cpp
    )
    target_link_libraries(kallisto_server_lib PUBLIC kallisto_lib kallisto_proto_lib gRPC::grpc++_reflection)
+
+   if(ENABLE_COVERAGE)
+       target_compile_options(kallisto_server_lib PUBLIC --coverage -O0 -g)
+       target_link_options(kallisto_server_lib PUBLIC --coverage)
+   endif()
 
    if(simdjson_FOUND)
        target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)

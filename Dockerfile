@@ -52,10 +52,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     bash \
     python3 \
+    python3-pip \
     ca-certificates \
     wrk \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install gcovr --break-system-packages
 
 # Install ghz for gRPC benchmarking
 RUN curl -sSL https://github.com/bojand/ghz/releases/download/v0.120.0/ghz-linux-x86_64.tar.gz | tar -xz -C /usr/local/bin ghz

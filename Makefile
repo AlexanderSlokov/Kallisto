@@ -14,7 +14,7 @@ CMAKE_FLAGS = -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cm
         benchmark-strict benchmark-batch benchmark-p99 benchmark-throughput \
         benchmark-dos test-atomic benchmark-multithread \
         bench-ghz bench-server bench-http bench-grpc \
-        docker-build docker-test docker-run
+        docker-build docker-test docker-run coverage
 
 all: build
 
@@ -75,6 +75,17 @@ test-threading: build
 
 test-persistence: build-server
 	@bash tests/test_persistence.sh
+
+coverage:
+	@echo "Building with coverage enabled..."
+	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_COVERAGE=ON
+	@cmake --build $(BUILD_DIR) -j $(shell nproc)
+	@echo "Running tests..."
+	@ctest --test-dir $(BUILD_DIR) --output-on-failure
+	@echo "Generating coverage report (requires gcovr)..."
+	@mkdir -p coverage_report
+	@gcovr -r . --html-details coverage_report/index.html -f src/ -f include/
+	@echo "Coverage report generated at coverage_report/index.html"
 
 # ===========================================================================
 # Benchmarks (CLI & In-process)

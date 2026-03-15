@@ -34,3 +34,4 @@
 /vcpkg_installed
 ghz-web
 /.idea
+/coverage_report
