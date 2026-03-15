@@ -19,22 +19,8 @@ KallistoServer::KallistoServer() {
         rocksdb_persistence.reset();
     }
     
-    // Legacy snapshot recovery (backward compatibility)
-    persistence = std::make_unique<StorageEngine>();
-    auto secrets = persistence->loadSnapshot();
-    if (!secrets.empty()) {
-        LOG_INFO("[CLI] Migrating " + std::to_string(secrets.size()) + " entries from snapshot to RocksDB...");
-        rebuildIndices(secrets);
-        // Migrate to RocksDB
-        if (rocksdb_persistence) {
-            for (const auto& entry : secrets) {
-                std::string full_key = buildFullKey(entry.path, entry.key);
-                rocksdb_persistence->put(full_key, entry);
-            }
-            LOG_INFO("[CLI] Migration complete.");
-        }
-    } else if (rocksdb_persistence) {
-        // Normal startup: Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
+    // RocksDB startup: Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
+    if (rocksdb_persistence) {
         size_t count = 0;
         rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
             path_index->update(entry.path);

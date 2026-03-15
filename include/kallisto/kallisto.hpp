@@ -7,7 +7,7 @@
 #include "kallisto/secret_entry.hpp"
 #include "kallisto/sharded_cuckoo_table.hpp"  // Sharded for thread-safety (Phase 1.2)
 #include "kallisto/tls_btree_manager.hpp"
-#include "kallisto/storage_engine.hpp"
+#include "kallisto/tls_btree_manager.hpp"
 
 namespace kallisto {
 
@@ -57,7 +57,6 @@ private:
     // Thread-safe sharded storage (64 partitions) — HOT CACHE
     std::unique_ptr<ShardedCuckooTable> storage;
     std::unique_ptr<TlsBTreeManager> path_index;
-    std::unique_ptr<StorageEngine> persistence;  // Legacy snapshot (kept for migration)
     std::unique_ptr<RocksDBStorage> rocksdb_persistence;  // RocksDB persistence layer
 
     // Persistence Strategy

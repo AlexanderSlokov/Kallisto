@@ -7,8 +7,8 @@
 ### 1. Security Layer & Testing Infrastructure
 - [ ] **[URGENT] Coverage & Integration Tests**: 
   - *Tier 1 (Networking/API - 0%):* `src/server/grpc_handler.cpp` (mock gRPC Client), `src/server/http_handler.cpp` (mock REST/JSON Client), `src/kallisto_server.cpp` (init logic).
-  - *Tier 2 (Persistence - Crash Recovery):* `src/storage_engine.cpp` (binary snapshot generation), `src/rocksdb_storage.cpp` (WAL recovery stress).
-  - *Strategy:* Use Integration Tests (spin up `KallistoServer` on a loopback port, send curl/gRPC requests) rather than isolated unit tests to quickly bump coverage to 80-90%.
+  - *Tier 2 (Persistence - Crash Recovery):* `src/rocksdb_storage.cpp` (WAL recovery stress).
+  - *Strategy:* Use Integration Tests (spin up `KallistoServer` on a loopback port) rather than isolated unit tests to quickly bump coverage.
 - [ ] **Testing Framework Migration**:
   - Migrate legacy macro tests in `tests/` to Google Test (GTest) & Google Mock (GMock) via `vcpkg`.
 - [ ] **Encryption-at-Rest**:
