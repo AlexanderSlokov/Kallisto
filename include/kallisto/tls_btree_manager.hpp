@@ -45,7 +45,7 @@ public:
 
 private:
     std::shared_ptr<const BTreeIndex> createUpdatedMaster(const std::string& path);
-    void dispatchUpdate(std::shared_ptr<const BTreeIndex> new_master);
+    void dispatchUpdate(const std::shared_ptr<const BTreeIndex>& new_master) const;
     static void updateLocalSnapshot(std::shared_ptr<const BTreeIndex> new_master);
 
     std::shared_ptr<const BTreeIndex> master_btree_;

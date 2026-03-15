@@ -47,7 +47,7 @@ std::shared_ptr<const BTreeIndex> TlsBTreeManager::createUpdatedMaster(const std
     return clone;
 }
 
-void TlsBTreeManager::dispatchUpdate(std::shared_ptr<const BTreeIndex> new_master) {
+void TlsBTreeManager::dispatchUpdate(const std::shared_ptr<const BTreeIndex>& new_master) const {
     if (!workers_) {
         updateLocalSnapshot(new_master);
         return;
@@ -55,11 +55,9 @@ void TlsBTreeManager::dispatchUpdate(std::shared_ptr<const BTreeIndex> new_maste
 
     for (size_t i = 0; i < workers_->size(); ++i) {
         auto& worker = workers_->getWorker(i);
-        if (&worker != nullptr && &worker.dispatcher() != nullptr) {
-            worker.dispatcher().post([new_master]() {
-                updateLocalSnapshot(new_master);
-            });
-        }
+        worker.dispatcher().post([new_master]() {
+            updateLocalSnapshot(new_master);
+        });
     }
 }
 
