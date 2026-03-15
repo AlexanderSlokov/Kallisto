@@ -34,12 +34,12 @@ CuckooTable::CuckooTable(size_t size, size_t initial_capacity) : capacity(size) 
     shadow_free_list_size_.store(free_list.size(), std::memory_order_relaxed);
 }
 
-uint64_t CuckooTable::hash_1_full(const std::string& key) const {
+uint64_t CuckooTable::hash1Full(const std::string& key) const {
     // Seed 1: 0xDEADBEEF, 0xCAFEBABE
     return SipHash::hash(key, 0xDEADBEEF64, 0xCAFEBABE64);
 }
 
-uint64_t CuckooTable::hash_2_full(const std::string& key) const {
+uint64_t CuckooTable::hash2Full(const std::string& key) const {
     // Seed 2: 0xFACEB00C, 0xDEADC0DE
     return SipHash::hash(key, 0xFACEB00C64, 0xDEADC0DE64);
 }
@@ -50,7 +50,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
     // ... [Logic for update/insert remains same] ...
     
     // 1. Check if key already exists (Update)
-    uint64_t h1_raw = hash_1_full(key);
+    uint64_t h1_raw = hash1Full(key);
     uint32_t tag = get_tag(h1_raw);
     size_t idx1 = h1_raw % capacity;
 
@@ -65,7 +65,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
         }
     }
 
-    uint64_t h2_raw = hash_2_full(key);
+    uint64_t h2_raw = hash2Full(key);
     size_t idx2 = h2_raw % capacity;
 
     for (int i = 0; i < SLOTS_PER_BUCKET; ++i) {
@@ -106,7 +106,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
     for (int i = 0; i < max_displacements; ++i) {
         // Try Table 1
         const std::string& cur_key = storage[current_index].key;
-        uint64_t h1 = hash_1_full(cur_key);
+        uint64_t h1 = hash1Full(cur_key);
         size_t b1 = h1 % capacity;
         
         for (int s = 0; s < SLOTS_PER_BUCKET; ++s) {
@@ -118,7 +118,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
         }
 
         // Try Table 2
-        uint64_t h2 = hash_2_full(cur_key);
+        uint64_t h2 = hash2Full(cur_key);
         size_t b2 = h2 % capacity;
 
         for (int s = 0; s < SLOTS_PER_BUCKET; ++s) {
@@ -153,7 +153,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
     std::shared_lock<std::shared_mutex> lock(rw_lock_); // READER LOCK (Shared)
 
-    uint64_t h1_raw = hash_1_full(key);
+    uint64_t h1_raw = hash1Full(key);
     uint32_t tag = get_tag(h1_raw);
     size_t idx1 = h1_raw % capacity;
 
@@ -166,7 +166,7 @@ std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
         }
     }
 
-    uint64_t h2_raw = hash_2_full(key);
+    uint64_t h2_raw = hash2Full(key);
     size_t idx2 = h2_raw % capacity;
 
     for (int i = 0; i < SLOTS_PER_BUCKET; ++i) {
@@ -181,7 +181,7 @@ std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
     return std::nullopt;
 }
 
-std::vector<SecretEntry> CuckooTable::get_all_entries() const {
+std::vector<SecretEntry> CuckooTable::getAllEntries() const {
     std::shared_lock<std::shared_mutex> lock(rw_lock_); // READER LOCK (Shared)
     
     std::vector<SecretEntry> all_secrets;
@@ -207,7 +207,7 @@ std::vector<SecretEntry> CuckooTable::get_all_entries() const {
 bool CuckooTable::remove(const std::string& key) {
     std::unique_lock<std::shared_mutex> lock(rw_lock_); // WRITER LOCK (Exclusive)
 
-    uint64_t h1_raw = hash_1_full(key);
+    uint64_t h1_raw = hash1Full(key);
     uint32_t tag = get_tag(h1_raw);
     size_t idx1 = h1_raw % capacity;
 
@@ -224,7 +224,7 @@ bool CuckooTable::remove(const std::string& key) {
         }
     }
 
-    uint64_t h2_raw = hash_2_full(key);
+    uint64_t h2_raw = hash2Full(key);
     size_t idx2 = h2_raw % capacity;
 
     for (int i = 0; i < SLOTS_PER_BUCKET; ++i) {
@@ -252,7 +252,7 @@ void CuckooTable::rehash() {
     (void)0; // No-op
 }
 
-CuckooTable::MemoryStats CuckooTable::get_memory_stats() const {
+CuckooTable::MemoryStats CuckooTable::getMemoryStats() const {
     // Non-blocking reads from Atomic Shadows
     // No lock required!
     

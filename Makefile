@@ -52,12 +52,12 @@ help:
 # Core build (without gRPC - always works)
 build:
 	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && cmake .. && make -j$(shell nproc)
+	@cd $(BUILD_DIR) && cmake -G "Unix Makefiles" .. && make -j$(shell nproc)
 
 # Server build (with gRPC + RocksDB via vcpkg)
 build-server:
 	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && cmake $(CMAKE_TOOLCHAIN) .. && make -j$(shell nproc)
+	@cd $(BUILD_DIR) && cmake -G "Unix Makefiles" $(CMAKE_TOOLCHAIN) .. && make -j$(shell nproc)
 
 run: build
 	@echo "\n--- Starting Kallisto (Type 'HELP' for commands) ---\n"

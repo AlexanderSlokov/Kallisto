@@ -24,7 +24,7 @@ public:
      * 2. Persists to RocksDB FIRST (Write-Ahead).
      * 3. Inserts into CuckooTable cache.
      */
-    bool put_secret(const std::string& path, const std::string& key, const std::string& value);
+    bool putSecret(const std::string& path, const std::string& key, const std::string& value);
 
     /**
      * Retrieves a secret.
@@ -32,21 +32,21 @@ public:
      * 2. O(1) Lookup in CuckooTable (hot cache).
      * 3. Cache miss → fallback to RocksDB → populate CuckooTable.
      */
-    std::string get_secret(const std::string& path, const std::string& key);
+    std::string getSecret(const std::string& path, const std::string& key);
 
     /**
      * Deletes a secret.
      * 1. Deletes from RocksDB FIRST.
      * 2. Removes from CuckooTable cache.
      */
-    bool delete_secret(const std::string& path, const std::string& key);
+    bool deleteSecret(const std::string& path, const std::string& key);
 
     enum class SyncMode {
         IMMEDIATE, // Sync to disk after every write (Safe, Slow)
         BATCH      // Sync only when threshold reached (Unsafe, Fast)
     };
 
-    void set_sync_mode(SyncMode mode);
+    void setSyncMode(SyncMode mode);
 
     /**
      * Manually triggers a disk flush.
@@ -66,10 +66,10 @@ private:
     const size_t SYNC_THRESHOLD = 10000; // Sync after 10,000 operations
     void check_and_sync();
 
-    std::string build_full_key(const std::string& path, const std::string& key) const;
+    std::string buildFullKey(const std::string& path, const std::string& key) const;
 
     // Internal helper to rebuild B-Tree after loading from disk
-    void rebuild_indices(const std::vector<SecretEntry>& secrets);
+    void rebuildIndices(const std::vector<SecretEntry>& secrets);
 };
 
 } // namespace kallisto

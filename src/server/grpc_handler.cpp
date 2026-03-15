@@ -231,7 +231,7 @@ void GrpcHandler::spawnGet() {
         [stor, pers, p_idx](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
                grpc::Status* status) {
             // Step 0: B-Tree validation
-            if (p_idx && !p_idx->get_local()->validate_path(req.path())) {
+            if (p_idx && !p_idx->get_local()->validatePath(req.path())) {
                 kallisto::warn("[GRPC] B-Tree validation failed for GET path: " + req.path());
                 *status = grpc::Status(grpc::StatusCode::NOT_FOUND, "Secret not found (B-Tree reject)");
                 return;
@@ -354,7 +354,7 @@ void GrpcHandler::spawnList() {
         },
         [stor](const ::kallisto::ListRequest& req, ::kallisto::ListResponse* resp, 
                grpc::Status* status) {
-            auto entries = stor->get_all_entries();
+            auto entries = stor->getAllEntries();
             for (const auto& entry : entries) {
                 if (req.prefix().empty() || 
                     entry.key.find(req.prefix()) == 0) {

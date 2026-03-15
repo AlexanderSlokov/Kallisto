@@ -36,7 +36,7 @@ public:
 	* @param path The path to validate.
 	* @return true if the path exists.
 	*/
-	bool validate_path(const std::string& path) const;
+	bool validatePath(const std::string& path) const;
 
 private:
 	struct Node {

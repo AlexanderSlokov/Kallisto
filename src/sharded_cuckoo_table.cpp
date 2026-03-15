@@ -45,11 +45,11 @@ bool ShardedCuckooTable::remove(const std::string& key) {
     return getShard(key)->remove(key);
 }
 
-CuckooTable::MemoryStats ShardedCuckooTable::get_memory_stats() const {
+CuckooTable::MemoryStats ShardedCuckooTable::getMemoryStats() const {
     CuckooTable::MemoryStats total{};
     
     for (const auto& shard : shards_) {
-        auto stats = shard->get_memory_stats();
+        auto stats = shard->getMemoryStats();
         total.bucket_count += stats.bucket_count;
         total.storage_capacity += stats.storage_capacity;
         total.storage_used += stats.storage_used;
@@ -62,18 +62,18 @@ CuckooTable::MemoryStats ShardedCuckooTable::get_memory_stats() const {
     return total;
 }
 
-std::vector<SecretEntry> ShardedCuckooTable::get_all_entries() const {
+std::vector<SecretEntry> ShardedCuckooTable::getAllEntries() const {
     std::vector<SecretEntry> all;
     
     // Pre-allocate based on expected size
     size_t estimated_total = 0;
     for (const auto& shard : shards_) {
-        estimated_total += shard->get_memory_stats().storage_used;
+        estimated_total += shard->getMemoryStats().storage_used;
     }
     all.reserve(estimated_total);
     
     for (const auto& shard : shards_) {
-        auto entries = shard->get_all_entries();
+        auto entries = shard->getAllEntries();
         all.insert(all.end(), entries.begin(), entries.end());
     }
     
