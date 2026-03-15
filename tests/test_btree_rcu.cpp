@@ -99,6 +99,9 @@ TEST_F(TlsBTreeManagerTest, UpdateCreatesNewSnapshot) {
     auto old_snapshot = manager->get_local();
     
     EXPECT_TRUE(manager->update("/new/path"));
+    
+    // Updating again should return false
+    EXPECT_FALSE(manager->update("/new/path"));
 
     EXPECT_FALSE(old_snapshot->validatePath("/new/path"));
 

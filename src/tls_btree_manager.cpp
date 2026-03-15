@@ -16,63 +16,59 @@ std::shared_ptr<const BTreeIndex> TlsBTreeManager::get_local() const {
     if (!tls_btree_) {
         // Fallback for threads that haven't received an update yet, e.g. main thread
         // Or uninitialized workers. We do a quick lock to grab the master.
-        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(master_mutex_));
+        std::lock_guard lock(const_cast<std::mutex&>(master_mutex_));
         tls_btree_ = master_btree_;
     }
     return tls_btree_;
 }
 
 bool TlsBTreeManager::update(const std::string& path) {
-    std::shared_ptr<const BTreeIndex> new_master;
-
-    {
-        std::lock_guard<std::mutex> lock(master_mutex_);
-
-        // Check if path already exists in current master
-        if (master_btree_->validatePath(path)) {
-            return true;
-        }
-
-        // Deep copy the master
-        auto clone = std::make_shared<BTreeIndex>(*master_btree_);
-
-        // Insert new path
-        clone->insertPath(path);
-
-        // Update master
-        master_btree_ = clone;
-        new_master = clone;
+    auto new_master = createUpdatedMaster(path);
+    if (!new_master) {
+        return false;
     }
 
-    // Dispatch update to all workers
-    if (workers_) {
-        for (size_t i = 0; i < workers_->size(); ++i) {
-            auto& worker = workers_->getWorker(i);
-            if (&worker != nullptr && &worker.dispatcher() != nullptr) {
-                worker.dispatcher().post([new_master]() {
-                    // Current thread-local pointer goes into GC queue to avoid stall
-                    if (tls_btree_) {
-                        std::lock_guard<std::mutex> gc_lock(gc_mutex_);
-                        gc_queue_.push_back(std::move(tls_btree_));
-                    }
-                    
-                    // Atomic swap to new pointer
-                    tls_btree_ = new_master;
-                });
-            }
-        }
-    } else {
-        // For single-threaded or test scenarios
-        if (tls_btree_) {
-            std::lock_guard<std::mutex> gc_lock(gc_mutex_);
-            gc_queue_.push_back(std::move(tls_btree_));
-        }
-        tls_btree_ = new_master;
-    }
-
-    // Try to cleanup GC queue off the hot path (or let a background thread do it)
+    dispatchUpdate(new_master);
     drain_garbage();
     return true;
+}
+
+std::shared_ptr<const BTreeIndex> TlsBTreeManager::createUpdatedMaster(const std::string& path) {
+    std::lock_guard lock(master_mutex_);
+
+    if (master_btree_->validatePath(path)) {
+        return nullptr;
+    }
+
+    auto clone = std::make_shared<BTreeIndex>(*master_btree_);
+    clone->insertPath(path);
+    master_btree_ = clone;
+    
+    return clone;
+}
+
+void TlsBTreeManager::dispatchUpdate(std::shared_ptr<const BTreeIndex> new_master) {
+    if (!workers_) {
+        updateLocalSnapshot(new_master);
+        return;
+    }
+
+    for (size_t i = 0; i < workers_->size(); ++i) {
+        auto& worker = workers_->getWorker(i);
+        if (&worker != nullptr && &worker.dispatcher() != nullptr) {
+            worker.dispatcher().post([new_master]() {
+                updateLocalSnapshot(new_master);
+            });
+        }
+    }
+}
+
+void TlsBTreeManager::updateLocalSnapshot(std::shared_ptr<const BTreeIndex> new_master) {
+    if (tls_btree_) {
+        std::lock_guard gc_lock(gc_mutex_);
+        gc_queue_.push_back(std::move(tls_btree_));
+    }
+    tls_btree_ = std::move(new_master);
 }
 
 void TlsBTreeManager::drain_garbage() {

@@ -34,16 +34,20 @@ public:
     /**
      * Updates the global B-Tree with a new path and signals all workers.
      * @param path The path to insert.
-     * @return true if insertion occurred or path already exists.
+     * @return true if insertion occurred, false if path already exists.
      */
     bool update(const std::string& path);
 
     /**
      * Optional: Trigger background GC if necessary.
      */
-    void drain_garbage();
+    static void drain_garbage();
 
 private:
+    std::shared_ptr<const BTreeIndex> createUpdatedMaster(const std::string& path);
+    void dispatchUpdate(std::shared_ptr<const BTreeIndex> new_master);
+    static void updateLocalSnapshot(std::shared_ptr<const BTreeIndex> new_master);
+
     std::shared_ptr<const BTreeIndex> master_btree_;
     std::mutex master_mutex_;
     event::WorkerPool* workers_;
