@@ -30,7 +30,7 @@ bool BTreeIndex::insert_path(const std::string& path) {
     return true;
 }
 
-bool BTreeIndex::validate_path(const std::string& path) const {
+bool BTreeIndex::validatePath(const std::string& path) const {
     return search(root.get(), path);
 }
 

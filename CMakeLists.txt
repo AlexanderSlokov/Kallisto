@@ -167,3 +167,23 @@ if(Protobuf_FOUND AND gRPC_FOUND)
 else()
     message(STATUS "gRPC/Protobuf not found - skipping server components (run vcpkg install)")
 endif()
+
+#===========================================================================
+# CTest Integration & Modern Libraries (Added for GTest & spdlog)
+#===========================================================================
+# 1. Register existing tests with CTest so 'make test' works correctly
+add_test(NAME CoreTest COMMAND kallisto_test)
+add_test(NAME RocksDBTest COMMAND test_rocksdb)
+add_test(NAME ThreadingTest COMMAND test_threading)
+add_test(NAME ListenerTest COMMAND test_listener)
+
+# 2. Find new vcpkg packages (Preparation for Phase 3 Refactoring)
+find_package(GTest CONFIG)
+if(GTest_FOUND)
+    message(STATUS "GTest found - ready for Unit Test upgrade")
+endif()
+
+find_package(spdlog CONFIG)
+if(spdlog_FOUND)
+    message(STATUS "spdlog found - ready for Logger upgrade")
+endif()

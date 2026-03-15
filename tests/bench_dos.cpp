@@ -143,7 +143,7 @@ void run_btree_gate_test() {
     auto start = std::chrono::high_resolution_clock::now();
     int blocked = 0;
     for(const auto& p : invalid_paths) {
-        if(!btree.validate_path(p)) blocked++;
+        if(!btree.validatePath(p)) blocked++;
     }
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> elapsed = end - start;

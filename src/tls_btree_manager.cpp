@@ -29,7 +29,7 @@ bool TlsBTreeManager::update(const std::string& path) {
         std::lock_guard<std::mutex> lock(master_mutex_);
 
         // Check if path already exists in current master
-        if (master_btree_->validate_path(path)) {
+        if (master_btree_->validatePath(path)) {
             return true;
         }
 

@@ -45,7 +45,7 @@ void handle_put(std::stringstream& ss) {
         return;
     }
 
-    if (server->put_secret(path, key, value)) {
+    if (server->putSecret(path, key, value)) {
         std::cout << "OK\n";
     } else {
         std::cout << "FAIL\n";
@@ -60,7 +60,7 @@ void handle_get(std::stringstream& ss) {
         return;
     }
 
-    std::string value = server->get_secret(path, key);
+    std::string value = server->getSecret(path, key);
     if (value.empty()) {
         std::cout << "(nil)\n";
     } else {
@@ -71,7 +71,7 @@ void handle_get(std::stringstream& ss) {
 void handle_del(std::stringstream& ss) {
     std::string path, key;
     ss >> path >> key;
-    if (server->delete_secret(path, key)) {
+    if (server->deleteSecret(path, key)) {
         std::cout << "OK\n";
     } else {
         std::cout << "FAIL (Not found)\n";
@@ -103,7 +103,7 @@ void run_benchmark(int count) {
     
     // 1. Write Phase
     for (int i = 0; i < count; ++i) {
-        server->put_secret(paths[i], keys[i], vals[i]);
+        server->putSecret(paths[i], keys[i], vals[i]);
     }
     
     auto mid = std::chrono::high_resolution_clock::now();
@@ -111,7 +111,7 @@ void run_benchmark(int count) {
     // 2. Read Phase (Hot path)
     int hits = 0;
     for (int i = 0; i < count; ++i) {
-        std::string val = server->get_secret(paths[i], keys[i]);
+        std::string val = server->getSecret(paths[i], keys[i]);
         if (!val.empty()) hits++;
     }
 
@@ -159,10 +159,10 @@ void process_line(std::string line) {
         for (auto & c: mode_str) c = toupper(c);
 
         if (mode_str == "STRICT" || mode_str == "IMMEDIATE") {
-            server->set_sync_mode(kallisto::KallistoServer::SyncMode::IMMEDIATE);
+            server->setSyncMode(kallisto::KallistoServer::SyncMode::IMMEDIATE);
             std::cout << "OK (Mode: STRICT)\n";
         } else if (mode_str == "BATCH" || mode_str == "PERF") {
-            server->set_sync_mode(kallisto::KallistoServer::SyncMode::BATCH);
+            server->setSyncMode(kallisto::KallistoServer::SyncMode::BATCH);
             std::cout << "OK (Mode: BATCH)\n";
         } else {
             kallisto::warn("Usage: MODE <STRICT|BATCH>");

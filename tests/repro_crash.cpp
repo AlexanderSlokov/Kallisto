@@ -72,7 +72,7 @@ void stress_test_multithreaded() {
     std::thread stats_reader([&]() {
         while (running) {
             try {
-                auto stats = table.get_memory_stats();
+                auto stats = table.getMemoryStats();
                 volatile size_t s = stats.total_memory_allocated;
                 (void)s;
             } catch (...) {
