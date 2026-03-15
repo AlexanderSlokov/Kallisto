@@ -29,14 +29,14 @@ public:
 	* @param path The path to insert (e.g., "/prod/db").
 	* @return true if insertion was successful.
 	*/
-	bool insert_path(const std::string& path);
+	bool insertPath(const std::string& path);
 
 	/**
 	* Validates if a path exists in the index.
 	* @param path The path to validate.
 	* @return true if the path exists.
 	*/
-	bool validate_path(const std::string& path) const;
+	bool validatePath(const std::string& path) const;
 
 private:
 	struct Node {

@@ -49,38 +49,56 @@ endif()
 add_executable(kallisto src/main.cpp)
 target_link_libraries(kallisto kallisto_lib)
 
-# Tests
+# ===========================================================================
+# Testing Infrastructure (CTest & GTest)
+# ===========================================================================
 enable_testing()
+find_package(GTest CONFIG REQUIRED)
+
+# Legacy / Custom Tests
 add_executable(kallisto_test tests/test_main.cpp)
-target_link_libraries(kallisto_test kallisto_lib)
+target_link_libraries(kallisto_test PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME CoreTest COMMAND kallisto_test)
 
-# Add test command
+add_executable(test_rocksdb tests/test_rocksdb.cpp)
+target_link_libraries(test_rocksdb PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME RocksDBTest COMMAND test_rocksdb)
 
-# Benchmark Tools
+add_executable(test_threading tests/test_threading.cpp)
+target_link_libraries(test_threading kallisto_lib)
+add_test(NAME ThreadingTest COMMAND test_threading)
+
+add_executable(test_listener tests/test_listener.cpp)
+# (Target link libraries for test_listener are in Phase 2 below)
+add_test(NAME ListenerTest COMMAND test_listener)
+
+# Modern GTest Suites
+add_executable(test_btree_rcu tests/test_btree_rcu.cpp)
+target_link_libraries(test_btree_rcu PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME BTreeRCUTest COMMAND test_btree_rcu)
+
+add_executable(test_sharded_cuckoo tests/test_sharded_cuckoo.cpp)
+target_link_libraries(test_sharded_cuckoo PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME ShardedCuckooTest COMMAND test_sharded_cuckoo)
+
+# ===========================================================================
+# Benchmark Tools & Utils
+# ===========================================================================
 add_executable(bench_p99 tests/bench_p99.cpp)
 target_link_libraries(bench_p99 kallisto_lib)
-
 
 add_executable(bench_dos tests/bench_dos.cpp)
 target_link_libraries(bench_dos kallisto_lib)
 
-# Verification Test
 add_executable(repro_crash tests/repro_crash.cpp)
 target_link_libraries(repro_crash kallisto_lib)
 
-# Threading Infrastructure Test
-add_executable(test_threading tests/test_threading.cpp)
-target_link_libraries(test_threading kallisto_lib)
-
-# Multi-threaded Benchmark
 add_executable(bench_multithread tests/bench_multithread.cpp)
 target_link_libraries(bench_multithread kallisto_lib)
 
 # ===========================================================================
 # Phase 2: Envoy-Style Server (gRPC + HTTP + SO_REUSEPORT)
 # ===========================================================================
-
-# Find packages (vcpkg handles correct versions)
 find_package(Protobuf CONFIG)
 find_package(gRPC CONFIG)
 find_package(simdjson CONFIG)
@@ -88,7 +106,7 @@ find_package(simdjson CONFIG)
 if(Protobuf_FOUND AND gRPC_FOUND)
     message(STATUS "gRPC and Protobuf found - building server components")
 
-    # Proto Generation (explicit for IDE compatibility)
+    # Proto Generation
     set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/proto")
     set(GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
     file(MAKE_DIRECTORY ${GEN_DIR})
@@ -98,7 +116,7 @@ if(Protobuf_FOUND AND gRPC_FOUND)
 
     add_custom_command(
         OUTPUT "${GEN_DIR}/kallisto.pb.cc" "${GEN_DIR}/kallisto.pb.h"
-               "${GEN_DIR}/kallisto.grpc.pb.cc" "${GEN_DIR}/kallisto.grpc.pb.h"
+            "${GEN_DIR}/kallisto.grpc.pb.cc" "${GEN_DIR}/kallisto.grpc.pb.h"
         COMMAND ${PROTOC_EXECUTABLE}
             --proto_path=${PROTO_DIR}
             --cpp_out=${GEN_DIR}
@@ -109,54 +127,40 @@ if(Protobuf_FOUND AND gRPC_FOUND)
         COMMENT "Generating gRPC/Protobuf sources from kallisto.proto"
     )
 
-    # Proto library (separate for test reuse)
-    add_library(kallisto_proto_lib STATIC
-        "${GEN_DIR}/kallisto.pb.cc"
-        "${GEN_DIR}/kallisto.grpc.pb.cc"
-    )
-    target_include_directories(kallisto_proto_lib PUBLIC ${GEN_DIR})
-    target_link_libraries(kallisto_proto_lib
-        PUBLIC
-        protobuf::libprotobuf
-        gRPC::grpc++
-    )
+   # Proto library
+   add_library(kallisto_proto_lib STATIC
+       "${GEN_DIR}/kallisto.pb.cc"
+       "${GEN_DIR}/kallisto.grpc.pb.cc"
+   )
+   target_include_directories(kallisto_proto_lib PUBLIC ${GEN_DIR})
+   target_link_libraries(kallisto_proto_lib PUBLIC protobuf::libprotobuf gRPC::grpc++)
 
-    # Server library
-    add_library(kallisto_server_lib
-        src/net/listener.cpp
-        src/server/grpc_handler.cpp
-        src/server/http_handler.cpp
-    )
-    target_link_libraries(kallisto_server_lib
-        PUBLIC
-        kallisto_lib
-        kallisto_proto_lib
-        gRPC::grpc++_reflection
-    )
-    if(simdjson_FOUND)
-        target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)
-        target_compile_definitions(kallisto_server_lib PUBLIC KALLISTO_HAS_SIMDJSON=1)
-    endif()
+   # Server library
+   add_library(kallisto_server_lib
+       src/net/listener.cpp
+       src/server/grpc_handler.cpp
+       src/server/http_handler.cpp
+   )
+   target_link_libraries(kallisto_server_lib PUBLIC kallisto_lib kallisto_proto_lib gRPC::grpc++_reflection)
 
-    # Server executable
-    add_executable(kallisto_server src/kallisto_server.cpp)
-    target_link_libraries(kallisto_server kallisto_server_lib)
+   if(simdjson_FOUND)
+       target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)
+       target_compile_definitions(kallisto_server_lib PUBLIC KALLISTO_HAS_SIMDJSON=1)
+   endif()
 
-    # Server tests
-    add_executable(test_listener tests/test_listener.cpp)
-    target_link_libraries(test_listener kallisto_server_lib)
-
-    # gRPC Benchmark Client (optional — file may not exist yet)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bench/bench_grpc_client.cpp")
-        add_executable(bench_grpc bench/bench_grpc_client.cpp)
-        target_link_libraries(bench_grpc
-            kallisto_lib
-            kallisto_proto_lib
-            gRPC::grpc++
-            protobuf::libprotobuf
-        )
-    endif()
-
+   # Server executable
+   add_executable(kallisto_server src/kallisto_server.cpp)
+   target_link_libraries(kallisto_server kallisto_server_lib)
+   # Server tests link
+   target_link_libraries(test_listener kallisto_server_lib)
 else()
-    message(STATUS "gRPC/Protobuf not found - skipping server components (run vcpkg install)")
+   message(STATUS "gRPC/Protobuf not found - skipping server components")
+endif()
+
+# ===========================================================================
+# Optional: Future Upgrades
+# ===========================================================================
+find_package(spdlog CONFIG)
+if(spdlog_FOUND)
+   message(STATUS "spdlog found - ready for Logger upgrade")
 endif()

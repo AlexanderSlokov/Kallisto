@@ -1,14 +1,20 @@
 {
-	"name": "kallisto-server",
-	"version-string": "0.1.0",
-	"dependencies": [
-		{
-			"name": "grpc",
-			"features": [],
-			"default-features": true
-		},
-		"protobuf",
-		"simdjson",
-		"rocksdb"
-	]
+  "name": "kallisto-server",
+  "version-string": "0.1.0",
+  "dependencies": [
+    {
+      "name": "grpc",
+      "features": [],
+      "default-features": true
+    },
+    "protobuf",
+    "simdjson",
+    "rocksdb",
+    "gtest",
+    "benchmark",
+    "spdlog",
+    "fmt",
+    "nlohmann-json",
+    "abseil"
+  ]
 }

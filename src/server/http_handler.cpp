@@ -270,7 +270,7 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
     // Step 0: B-Tree validation (DoS protection, O(log N))
-    if (path_index_ && !path_index_->get_local()->validate_path(path)) {
+    if (path_index_ && !path_index_->get_local()->validatePath(path)) {
         kallisto::warn("[HTTP] B-Tree validation failed for GET path: " + path);
         sendError(conn, 404, "Secret not found (B-Tree reject)");
         return;

@@ -66,7 +66,7 @@ bool StorageEngine::save_snapshot(const std::vector<SecretEntry>& secrets) {
     return true;
 }
 
-std::vector<SecretEntry> StorageEngine::load_snapshot() {
+std::vector<SecretEntry> StorageEngine::loadSnapshot() {
     std::vector<SecretEntry> secrets;
     std::string full_path = data_path + "/" + snapshot_filename;
 

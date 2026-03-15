@@ -45,7 +45,7 @@ public:
      * Loads secrets from the snapshot file.
      * @return List of secrets loaded from disk.
      */
-    std::vector<SecretEntry> load_snapshot();
+    std::vector<SecretEntry> loadSnapshot();
 
 private:
     std::string data_path;

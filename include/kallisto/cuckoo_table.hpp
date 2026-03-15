@@ -36,7 +36,7 @@ public:
     /**
      * Retrieves all entries from the table (for snapshotting).
      */
-    std::vector<SecretEntry> get_all_entries() const;
+    std::vector<SecretEntry> getAllEntries() const;
 
     /**
      * Removes an entry by key.
@@ -59,7 +59,7 @@ public:
      */
     bool remove(const std::string& key);
 
-    MemoryStats get_memory_stats() const;
+    MemoryStats getMemoryStats() const;
 
 private:
     struct alignas(64) Bucket {
@@ -98,8 +98,8 @@ private:
     const int max_displacements = 500; // Increased due to higher load factor capability
 
     // Hash helpers return full 64-bit for Tag extraction
-    uint64_t hash_1_full(const std::string& key) const;
-    uint64_t hash_2_full(const std::string& key) const;
+    uint64_t hash1Full(const std::string& key) const;
+    uint64_t hash2Full(const std::string& key) const;
     
     // Tag generation: Extract high 32-bits from hash
     static inline uint32_t get_tag(uint64_t method) {

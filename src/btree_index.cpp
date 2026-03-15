@@ -14,7 +14,7 @@ BTreeIndex::BTreeIndex(const BTreeIndex& other) : min_degree(other.min_degree) {
     }
 }
 
-bool BTreeIndex::insert_path(const std::string& path) {
+bool BTreeIndex::insertPath(const std::string& path) {
     if (search(root.get(), path)) return true;
 
     Node* r = root.get();
@@ -30,7 +30,7 @@ bool BTreeIndex::insert_path(const std::string& path) {
     return true;
 }
 
-bool BTreeIndex::validate_path(const std::string& path) const {
+bool BTreeIndex::validatePath(const std::string& path) const {
     return search(root.get(), path);
 }
 

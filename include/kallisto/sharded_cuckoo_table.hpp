@@ -47,13 +47,13 @@ class ShardedCuckooTable
 	bool remove(const std::string &key);
 
 	// Aggregate stats from all shards
-	CuckooTable::MemoryStats get_memory_stats() const;
-	std::vector<SecretEntry> get_all_entries() const;
+	CuckooTable::MemoryStats getMemoryStats() const;
+	std::vector<SecretEntry> getAllEntries() const;
 
 	// Sharding info
-	size_t num_shards() const { return NUM_SHARDS; }
+	size_t numShards() const { return NUM_SHARDS; }
 
-	size_t get_shard_index(const std::string &key) const
+	size_t getShardIndex(const std::string &key) const
 	{
 		// Use static SipHash with consistent seed for sharding
 		return SipHash::hash(key, 0xDEADBEEF64, 0xCAFEBABE64) &
@@ -66,7 +66,7 @@ class ShardedCuckooTable
 	// HOT PATH - inlined for performance (O5 Council recommendation)
 	inline CuckooTable *getShard(const std::string &key) const
 	{
-		// Use same seed as CuckooTable::hash_1_full for consistent
+		// Use same seed as CuckooTable::hash1Full for consistent
 		// distribution
 		size_t idx = SipHash::hash(key, 0xDEADBEEF64, 0xCAFEBABE64) &
 			     (NUM_SHARDS - 1);
