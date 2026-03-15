@@ -19,7 +19,7 @@ CMAKE_FLAGS = -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cm
 all: build
 
 help:
-	@echo "Kallisto Professional Commands:"
+	@echo "Kallisto Commands:"
 	@echo "  make build          - Build core (CLI only)"
 	@echo "  make build-server   - Build with gRPC/HTTP + RocksDB (requires vcpkg)"
 	@echo "  make test           - Run all Unit Tests (via CTest)"
