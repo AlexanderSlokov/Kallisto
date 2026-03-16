@@ -5,17 +5,19 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
-    // Phase 1.2: Use ShardedCuckooTable (64 partitions) for thread-safe access
-    // Capacity: 2M items across 64 shards (~31K per shard)
-    storage = std::make_unique<ShardedCuckooTable>(2000000);
+    // This ShardedCuckooTable have 64 partitions for thread-safe access
+    // Capacity: 2^20 items
+    storage = std::make_unique<ShardedCuckooTable>(1048576);
+
+    // Only need to check a few Node for a malicious path (high density of CPU Cache). You can calculate by getting logarit 100 of 2^20, should be 3.32.
+    path_index = std::make_unique<TlsBTreeManager>(100, nullptr);
     
-    path_index = std::make_unique<TlsBTreeManager>(5, nullptr);
-    
-    // RocksDB persistence (replaces old StorageEngine snapshot)
-    // CuckooTable starts EMPTY — warms up via cache-miss fallback
+    // RocksDB persistence
+    // CuckooTable will starts EMPTY and warms up via cache-miss fallback
+    // to prevent self-DDoS it's RocksDB
     rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
     if (!rocksdb_persistence->is_open()) {
-        LOG_WARN("[CLI] RocksDB unavailable — running in-memory only");
+        LOG_WARN("[CLI] RocksDB unavailable — running in-memory only!");
         rocksdb_persistence.reset();
     }
     
@@ -41,11 +43,15 @@ void KallistoServer::setSyncMode(SyncMode mode) {
     sync_mode = mode;
     if (sync_mode == SyncMode::IMMEDIATE) {
         LOG_INFO("[CONFIG] Switched to IMMEDIATE Sync Mode (Safe).");
-        if (rocksdb_persistence) rocksdb_persistence->set_sync(true);
+        if (rocksdb_persistence) {
+          rocksdb_persistence->set_sync(true);
+        }
         force_save();
     } else {
         LOG_INFO("[CONFIG] Switched to BATCH Sync Mode (Performance).");
-        if (rocksdb_persistence) rocksdb_persistence->set_sync(false);
+        if (rocksdb_persistence) {
+          rocksdb_persistence->set_sync(false);
+        }
     }
 }
 
