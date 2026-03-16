@@ -595,7 +595,7 @@ Ran `bench_dos` to compare SipHash against a simulated Weak Hash (Murmur-like) u
 - **Invalid Path Rejection**: Blocked 10,000 invalid requests in **0.30 ms**.
 - **Average Latency**: ~30 nanoseconds per block.
 
-## 8.3. Multi-threaded Benchmark (Sharded CuckooTable)
+## 8.3. Multithreaded Benchmark (Sharded CuckooTable)
 
 **Configuration**: 3 Worker Threads, 64 Shards, 100,000 secrets pre-populated.
 **Goal**: Simulate real-world Vault traffic patterns.
