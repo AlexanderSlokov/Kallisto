@@ -44,9 +44,9 @@ RocksDBStorage::RocksDBStorage(const std::string& db_path) {
 RocksDBStorage::~RocksDBStorage() {
     if (db_raw_) {
         // Flush before closing to ensure all data is persisted
-        rocksdb::FlushOptions flush_opts;
-        flush_opts.wait = true;
-        db_raw_->Flush(flush_opts);
+        rocksdb::FlushOptions flush_options;
+        flush_options.wait = true;
+        db_raw_->Flush(flush_options);
 
         delete db_raw_;
         db_raw_ = nullptr;

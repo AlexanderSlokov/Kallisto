@@ -14,9 +14,8 @@ ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
     //
     // For 50% load factor: items = 0.5 * total_slots
     // items = 0.5 * 16 * buckets
-    // buckets = items / 8
-    //
-    // (O5 Council decision: Gemini correction from /4 to /8)
+    // Reverting to /8 because the Cuckoo Hashing logic requires Load Factor < 50% for high RPS
+    // 16 * buckets = 8 * items_per_shard => 800% capacity in slots
     size_t buckets_per_shard = items_per_shard / 8;
     
     // Ensure minimum bucket count
@@ -29,7 +28,8 @@ ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
          std::to_string(items_per_shard) + " items capacity per shard");
     
     for (auto& shard : shards_) {
-        shard = std::make_unique<CuckooTable>(buckets_per_shard, items_per_shard);
+        // Cuckoo Table requires 2x capacity of total items for its storage Arena to prevent displacement limit breaks
+        shard = std::make_unique<CuckooTable>(buckets_per_shard, items_per_shard * 2);
     }
 }
 
