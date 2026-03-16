@@ -7,7 +7,6 @@
 #   Default: 4 threads, 200 connections, 10s duration
 #
 set -euo pipefail
-
 # ── Config ──────────────────────────────────────────────────────────────
 # Auto-detect PHYSICAL CPU cores (ignoring hyper-threading logical processors)
 # We count unique pairs of (Core, Socket) to support multi-socket systems safely.

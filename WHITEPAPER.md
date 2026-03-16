@@ -182,7 +182,7 @@ Complexity is always Logarithm base `degree` of N (O(log_t N)). With degree=100,
 
 ## 5.1. Storage Engine
 
-The report writer will use Binary File Packing (/data/kallisto/kallisto.db). The goal is High Performance so it will be very unreasonable if we process data on RAM then fast, but the application must interact with the disk very slowly due to creating thousands of folders by level causing inode overhead. Loading `load_snapshot` from 1 file binary into RAM will be much faster than scanning folders.
+Kallisto uses **RocksDB** as its persistence engine. Unlike the previous binary snapshot mechanism (which required dumping the entire RAM state to disk), RocksDB provides an incremental Write-Ahead Log (WAL) and SSTable-based storage. This allows for high-performance writes and efficient crash recovery while maintaining sub-millisecond read access through the Cuckoo Table cache.
 
 # VI. Implementation Details
 
@@ -197,15 +197,14 @@ KallistoServer::KallistoServer() {
     // Cuckoo Hashing typically degrades if the load factor is above 50% (leads to cycles/infinite loops).
     // Capacity of 2 tables with size 16384 is 32,768 slots.
     // Load Factor = 10,000 / 32,768 ≈ 30% (should be safe).
-    storage = std::make_unique<CuckooTable>(16384);
-    path_index = std::make_unique<BTreeIndex>(5);
-    persistence = std::make_unique<StorageEngine>();
+    storage = std::make_unique<ShardedCuckooTable>(2000000);
+    path_index = std::make_unique<TlsBTreeManager>(5, nullptr);
+    rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
 
-    // Recover state from disk at /data/kallisto/
-    auto secrets = persistence->load_snapshot();
-    if (!secrets.empty()) {
-        rebuild_indices(secrets);
-    }
+    // Rebuild B-Tree index from RocksDB on startup
+    rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
+        path_index->update(entry.path);
+    });
 }
 ```
 
@@ -596,7 +595,7 @@ Ran `bench_dos` to compare SipHash against a simulated Weak Hash (Murmur-like) u
 - **Invalid Path Rejection**: Blocked 10,000 invalid requests in **0.30 ms**.
 - **Average Latency**: ~30 nanoseconds per block.
 
-## 8.3. Multi-threaded Benchmark (Sharded CuckooTable)
+## 8.3. Multithreaded Benchmark (Sharded CuckooTable)
 
 **Configuration**: 3 Worker Threads, 64 Shards, 100,000 secrets pre-populated.
 **Goal**: Simulate real-world Vault traffic patterns.

@@ -11,7 +11,7 @@
 // Managing it via unique_ptr ensures clean shutdown and allows for lazy initialization if needed.
 std::unique_ptr<kallisto::KallistoServer> server;
 
-void print_help() {
+void printHelp() {
     std::cout << "Kallisto Command Line Interface\n";
     std::cout << "Usage:\n";
     std::cout << "  PUT <path> <key> <value>   Store a secret\n";
@@ -24,7 +24,7 @@ void print_help() {
     std::cout << "  EXIT                       Quit\n";
 }
 
-void handle_put(std::stringstream& ss) {
+void handlePut(std::stringstream& ss) {
     std::string path, key, value;
     ss >> path >> key;
     // Value might contain spaces? For MVP, we assume no spaces or read rest of line.
@@ -52,7 +52,7 @@ void handle_put(std::stringstream& ss) {
     }
 }
 
-void handle_get(std::stringstream& ss) {
+void handleGet(std::stringstream& ss) {
     std::string path, key;
     ss >> path >> key;
     if (path.empty() || key.empty()) {
@@ -68,7 +68,7 @@ void handle_get(std::stringstream& ss) {
     }
 }
 
-void handle_del(std::stringstream& ss) {
+void handleDelete(std::stringstream& ss) {
     std::string path, key;
     ss >> path >> key;
     if (server->deleteSecret(path, key)) {
@@ -78,7 +78,7 @@ void handle_del(std::stringstream& ss) {
     }
 }
 
-void run_benchmark(int count) {
+void runBenchmark(int count) {
     std::cout << "--- Starting Benchmark (" + std::to_string(count) + " ops) ---\n";
     
     // Disable logging during benchmark for accurate measurement
@@ -112,7 +112,7 @@ void run_benchmark(int count) {
     int hits = 0;
     for (int i = 0; i < count; ++i) {
         std::string val = server->getSecret(paths[i], keys[i]);
-        if (!val.empty()) hits++;
+        if (!val.empty()) { hits++; }
     }
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -123,16 +123,19 @@ void run_benchmark(int count) {
     // Stats Calculation
     std::chrono::duration<double> write_sec = mid - start;
     std::chrono::duration<double> read_sec = end - mid;
-    
-    double write_rps = count / write_sec.count();
-    double read_rps = count / read_sec.count();
 
-    std::cout << "Write Time: " << std::fixed << std::setprecision(4) << write_sec.count() << "s | RPS: " << write_rps << "\n";
-    std::cout << "Read Time : " << std::fixed << std::setprecision(4) << read_sec.count() << "s | RPS: " << read_rps << "\n";
-    std::cout << "Hits      : " << hits << "/" << count << "\n";
+    const double write_rps = count / write_sec.count();
+    const double read_rps = count / read_sec.count();
+
+    std::cout << "Write Time: " <<
+      std::fixed << std::setprecision(4) << write_sec.count() << "s | RPS: " << write_rps << "\n";
+    std::cout << "Read Time : " <<
+      std::fixed << std::setprecision(4) << read_sec.count() << "s | RPS: " << read_rps << "\n";
+    std::cout << "Hits      : " <<
+      hits << "/" << count << "\n";
 }
 
-void process_line(std::string line) {
+void processLine(const std::string& line) {
     std::stringstream ss(line);
     std::string cmd;
     ss >> cmd;
@@ -140,13 +143,15 @@ void process_line(std::string line) {
     // Normalize command to uppercase
     for (auto & c: cmd) c = toupper(c);
 
-    if (cmd == "PUT") handle_put(ss);
-    else if (cmd == "GET") handle_get(ss);
-    else if (cmd == "DEL") handle_del(ss);
-    else if (cmd == "BENCH") {
+    if (cmd == "PUT") { handlePut(ss);
+    } else if (cmd == "GET") { handleGet(ss);
+    } else if (cmd == "DEL") { handleDelete(ss);
+    } else if (cmd == "BENCH") {
         int count;
-        if (ss >> count) run_benchmark(count);
-        else kallisto::warn("Usage: BENCH <count>");
+        if (ss >> count) { runBenchmark(count);
+        } else {
+          kallisto::warn("Usage: BENCH <count>");
+        }
     }
     else if (cmd == "SAVE") {
         server->force_save();
@@ -185,7 +190,7 @@ void process_line(std::string line) {
         exit(0);
     }
     else if (cmd == "HELP") {
-        print_help();
+        printHelp();
     }
     else if (!cmd.empty()) {
         kallisto::warn("Unknown command. Type HELP.");
@@ -207,8 +212,10 @@ int main(int argc, char** argv) {
     std::string line;
     std::cout << "> ";
     while (std::getline(std::cin, line)) {
-        if (line.empty()) continue;
-        process_line(line);
+        if (line.empty()) {
+          continue;
+        }
+        processLine(line);
         std::cout << "> ";
     }
 

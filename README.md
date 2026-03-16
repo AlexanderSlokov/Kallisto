@@ -1,16 +1,18 @@
-# Kallisto engine
+# Kallisto - An In-Memory Secrets Engine
 
 *"Fast like Redis. API requests? Just like Vault.*
 
-*Sounds like it uses RocksDB? Hell yes. And architecturally, it's the lovely daughter of Envoy Proxy.*
+*Sounds like it uses RocksDB? Hell yes! And architecturally, it's the lovely daughter of Envoy Proxy.*
 
 *Plus, it clusters up using NuRaft.*
 
 (...)
 
-*And yes, we use C++20, not Rust. Because a 100-year lifespan isn't long enough to fight both the borrow checker and C++ at the same time."*
+If you are wondering why this project is called Kallisto, It's because we want to make something beautiful about Software Architect, Data Structure and Algorithm.
 
-Kallisto is a high-performance secret management system built with C++20. It provides a secure and efficient way to store and retrieve secrets, with a focus on performance and scalability.
+We use C++20, not Rust. Because a 100-year lifespan isn't long enough to fight both the borrow checker and C++ at the same time."*
+
+Kallisto is a high-performance secret management engine built with C++20. It provides a secure and efficient way to store and retrieve secrets with a focus on performance and scalability.
 
 # HOW TO USE
 
