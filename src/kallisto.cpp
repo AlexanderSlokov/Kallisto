@@ -6,13 +6,13 @@ namespace kallisto {
 
 KallistoServer::KallistoServer() {
     // 2^20, bitwise AND for fast modulo
-    const size_t CUCKOO_TABLE_CAPACITY=1048576;
-    storage = make_unique<ShardedCuckooTable>(CUCKOO_TABLE_CAPACITY);
+    const size_t cuckoo_table_capacity=1048576;
+    storage = std::make_unique<ShardedCuckooTable>(cuckoo_table_capacity);
 
     // B-Tree with high degree (100) limit tree height to ~3 levels for 1M entries.
     // This optimizes Cache Locality, reduces memory access times and CPU Pointer Chasing when validating paths.
-    constexpr size_t BTREE_DEGREE = 100;
-    path_index = make_unique<TlsBTreeManager>(BTREE_DEGREE, nullptr);
+    constexpr size_t btree_degree = 100;
+    path_index = std::make_unique<TlsBTreeManager>(btree_degree, nullptr);
     
     // CuckooTable will starts EMPTY and warms up via cache-miss fallback
     // to prevent self-DDoS it's RocksDB
@@ -29,7 +29,7 @@ KallistoServer::KallistoServer() {
             path_index->update(entry.path);
             count++;
         });
-        LOG_INFO("[CLI] Rebuilt B-Tree index with " + to_string(count) + " paths from RocksDB.");
+        LOG_INFO("[CLI] Rebuilt B-Tree index with " + std::to_string(count) + " paths from RocksDB.");
     }
 }
 

@@ -35,3 +35,4 @@
 ghz-web
 /.idea
 /coverage_report
+/.cache
