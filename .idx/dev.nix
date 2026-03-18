@@ -80,12 +80,12 @@
       enable = true;
       previews = {
         kallisto-grpc = {
-          command = ["echo" "Chạy Kallisto gRPC..."];
+          command = ["echo" "Running Kallisto gRPC..."];
           env = { PORT = "50051"; };
           manager = "web";
         };
         kallisto-http = {
-          command = ["echo" "Chạy Kallisto HTTP..."];
+          command = ["echo" "Running Kallisto HTTP..."];
           env = { PORT = "8080"; };
           manager = "web";
         };
