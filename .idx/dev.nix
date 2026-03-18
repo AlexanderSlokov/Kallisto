@@ -11,7 +11,9 @@
     pkgs.gdb
     pkgs.cmake
     pkgs.pkg-config
-    pkgs.gnumake # Đã sửa từ pkgs.make thành pkgs.gnumake
+    pkgs.gnumake
+    pkgs.perl
+    pkgs.linuxHeaders # Đã sửa từ pkgs.make thành pkgs.gnumake
 
     # Vcpkg dependencies
     pkgs.curl
