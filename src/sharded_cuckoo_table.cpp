@@ -4,31 +4,21 @@
 namespace kallisto {
 
 ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
-    // Calculate per-shard parameters
     size_t items_per_shard = total_capacity / NUM_SHARDS;
     
-    // CuckooTable architecture:
-    // - 2 tables (table_1, table_2)
-    // - 8 slots per bucket
-    // - Total slots = buckets * 8 * 2 = 16 * buckets
-    //
-    // For 50% load factor: items = 0.5 * total_slots
-    // items = 0.5 * 16 * buckets
-    // Reverting to /8 because the Cuckoo Hashing logic requires Load Factor < 50% for high RPS
-    // 16 * buckets = 8 * items_per_shard => 800% capacity in slots
-    size_t buckets_per_shard = items_per_shard / 8;
+    // Each bucket in CuckooTable has 8 slots.
+    constexpr size_t SLOTS_PER_BUCKET = 8;
+    size_t buckets_per_shard = items_per_shard / SLOTS_PER_BUCKET;
     
-    // Ensure minimum bucket count
-    if (buckets_per_shard < 64) {
-        buckets_per_shard = 64;
-    }
+    // Ensure minimum bucket count to maintain hash performance and avoid excessive collisions.
+    constexpr size_t MIN_BUCKETS_PER_SHARD = 64;
+    buckets_per_shard = std::max(buckets_per_shard, MIN_BUCKETS_PER_SHARD);
     
     info("ShardedCuckooTable: Creating " + std::to_string(NUM_SHARDS) + 
-         " shards, " + std::to_string(buckets_per_shard) + " buckets each, " +
-         std::to_string(items_per_shard) + " items capacity per shard");
+         " shards, " + std::to_string(buckets_per_shard) + " buckets for each shard, and " + std::to_string(items_per_shard) + " items per shard");
     
     for (auto& shard : shards_) {
-        // Cuckoo Table requires 2x capacity of total items for its storage Arena to prevent displacement limit breaks
+        // Need to reserve 2x capacity for Arena storage to avoid 'displacement limit' when the table reaches high load factor (above 90%).
         shard = std::make_unique<CuckooTable>(buckets_per_shard, items_per_shard * 2);
     }
 }
@@ -43,23 +33,6 @@ std::optional<SecretEntry> ShardedCuckooTable::lookup(const std::string& key) co
 
 bool ShardedCuckooTable::remove(const std::string& key) {
     return getShard(key)->remove(key);
-}
-
-CuckooTable::MemoryStats ShardedCuckooTable::getMemoryStats() const {
-    CuckooTable::MemoryStats total{};
-    
-    for (const auto& shard : shards_) {
-        auto stats = shard->getMemoryStats();
-        total.bucket_count += stats.bucket_count;
-        total.storage_capacity += stats.storage_capacity;
-        total.storage_used += stats.storage_used;
-        total.free_list_size += stats.free_list_size;
-        total.bucket_memory_bytes += stats.bucket_memory_bytes;
-        total.storage_memory_bytes += stats.storage_memory_bytes;
-        total.total_memory_allocated += stats.total_memory_allocated;
-    }
-    
-    return total;
 }
 
 std::vector<SecretEntry> ShardedCuckooTable::getAllEntries() const {
@@ -78,6 +51,23 @@ std::vector<SecretEntry> ShardedCuckooTable::getAllEntries() const {
     }
     
     return all;
+}
+
+CuckooTable::MemoryStats ShardedCuckooTable::getMemoryStats() const {
+    CuckooTable::MemoryStats total{};
+    
+    for (const auto& shard : shards_) {
+        auto stats = shard->getMemoryStats();
+        total.bucket_count += stats.bucket_count;
+        total.storage_capacity += stats.storage_capacity;
+        total.storage_used += stats.storage_used;
+        total.free_list_size += stats.free_list_size;
+        total.bucket_memory_bytes += stats.bucket_memory_bytes;
+        total.storage_memory_bytes += stats.storage_memory_bytes;
+        total.total_memory_allocated += stats.total_memory_allocated;
+    }
+    
+    return total;
 }
 
 } // namespace kallisto
