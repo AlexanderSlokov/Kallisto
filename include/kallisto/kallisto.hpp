@@ -1,17 +1,14 @@
 #pragma once
 
 #include <string>
-#include <vector>
-#include <chrono>
 #include <memory>
 #include "kallisto/secret_entry.hpp"
-#include "kallisto/sharded_cuckoo_table.hpp"  // Sharded for thread-safety (Phase 1.2)
-#include "kallisto/tls_btree_manager.hpp"
+#include "kallisto/sharded_cuckoo_table.hpp"
 #include "kallisto/tls_btree_manager.hpp"
 
 namespace kallisto {
 
-class RocksDBStorage;  // Forward declaration
+class RocksDBStorage;
 
 class KallistoServer {
 public:
@@ -19,25 +16,30 @@ public:
     ~KallistoServer();
 
     /**
-     * Stores a secret at a specific path.
-     * 1. Validates path in B-Tree.
-     * 2. Persists to RocksDB FIRST (Write-Ahead).
-     * 3. Inserts into CuckooTable cache.
+     * @brief Stores a secret at a specific path.
+     * 
+     * @param path The path to store the secret at.
+     * @param key The key of the secret.
+     * @param value The value of the secret.
+     * @return true if the secret was stored successfully, false otherwise.
      */
     bool putSecret(const std::string& path, const std::string& key, const std::string& value);
 
     /**
-     * Retrieves a secret.
-     * 1. Validates path in B-Tree.
-     * 2. O(1) Lookup in CuckooTable (hot cache).
-     * 3. Cache miss → fallback to RocksDB → populate CuckooTable.
+     * @brief Retrieves a secret.
+     * 
+     * @param path The path to retrieve the secret from.
+     * @param key The key of the secret.
+     * @return The value of the secret if found, empty string otherwise.
      */
     std::string getSecret(const std::string& path, const std::string& key);
 
     /**
-     * Deletes a secret.
-     * 1. Deletes from RocksDB FIRST.
-     * 2. Removes from CuckooTable cache.
+     * @brief Deletes a secret.
+     * 
+     * @param path The path to delete the secret from.
+     * @param key The key of the secret.
+     * @return true if the secret was deleted successfully, false otherwise.
      */
     bool deleteSecret(const std::string& path, const std::string& key);
 
@@ -49,20 +51,19 @@ public:
     void setSyncMode(SyncMode mode);
 
     /**
-     * Manually triggers a disk flush.
+     * @brief Manually triggers a disk flush.
      */
     void force_save();
 
 private:
-    // Thread-safe sharded storage (64 partitions) — HOT CACHE
     std::unique_ptr<ShardedCuckooTable> storage;
     std::unique_ptr<TlsBTreeManager> path_index;
-    std::unique_ptr<RocksDBStorage> rocksdb_persistence;  // RocksDB persistence layer
+    std::unique_ptr<RocksDBStorage> rocksdb_persistence;
 
-    // Persistence Strategy
-    SyncMode sync_mode = SyncMode::IMMEDIATE; // Default to safe
+    // Default to safe mode
+    SyncMode sync_mode = SyncMode::IMMEDIATE; 
     size_t unsaved_ops_count = 0;
-    const size_t SYNC_THRESHOLD = 10000; // Sync after 10,000 operations
+    static constexpr size_t SYNC_THRESHOLD = 10000;
     void check_and_sync();
 
     std::string buildFullKey(const std::string& path, const std::string& key) const;

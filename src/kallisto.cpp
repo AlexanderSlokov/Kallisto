@@ -5,14 +5,15 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
-    // This ShardedCuckooTable have 64 partitions for thread-safe access
-    // Capacity: 2^20 items
-    storage = std::make_unique<ShardedCuckooTable>(1048576);
+    // 2^20, bitwise AND for fast modulo
+    const size_t CUCKOO_TABLE_CAPACITY=1048576;
+    storage = make_unique<ShardedCuckooTable>(CUCKOO_TABLE_CAPACITY);
 
-    // Only need to check a few Node for a malicious path (high density of CPU Cache). You can calculate by getting logarit 100 of 2^20, should be 3.32.
-    path_index = std::make_unique<TlsBTreeManager>(100, nullptr);
+    // B-Tree with high degree (100) limit tree height to ~3 levels for 1M entries.
+    // This optimizes Cache Locality, reduces memory access times and CPU Pointer Chasing when validating paths.
+    constexpr size_t BTREE_DEGREE = 100;
+    path_index = make_unique<TlsBTreeManager>(BTREE_DEGREE, nullptr);
     
-    // RocksDB persistence
     // CuckooTable will starts EMPTY and warms up via cache-miss fallback
     // to prevent self-DDoS it's RocksDB
     rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
@@ -21,14 +22,14 @@ KallistoServer::KallistoServer() {
         rocksdb_persistence.reset();
     }
     
-    // RocksDB startup: Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
+    // Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
     if (rocksdb_persistence) {
         size_t count = 0;
         rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
             path_index->update(entry.path);
             count++;
         });
-        LOG_INFO("[CLI] Rebuilt B-Tree index with " + std::to_string(count) + " paths from RocksDB.");
+        LOG_INFO("[CLI] Rebuilt B-Tree index with " + to_string(count) + " paths from RocksDB.");
     }
 }
 
@@ -39,7 +40,7 @@ KallistoServer::~KallistoServer() {
     }
 }
 
-void KallistoServer::setSyncMode(SyncMode mode) {
+void KallistoServer::setSyncMode(KallistoServer::SyncMode mode) {
     sync_mode = mode;
     if (sync_mode == SyncMode::IMMEDIATE) {
         LOG_INFO("[CONFIG] Switched to IMMEDIATE Sync Mode (Safe).");
