@@ -1,6 +1,7 @@
 #include "kallisto/kallisto.hpp"
 #include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
+#include <unordered_set>
 
 namespace kallisto {
 
@@ -24,8 +25,11 @@ KallistoServer::KallistoServer() {
     // Rebuild B-Tree from RocksDB so cache-miss GETs aren't blocked
     if (rocksdb_persistence) {
         size_t count = 0;
+        std::unordered_set<std::string> seen_paths;
         rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {
-            path_index->update(entry.path);
+            if (seen_paths.insert(entry.path).second) {
+                path_index->update(entry.path);
+            }
             count++;
         });
         LOG_INFO("[CLI] Rebuilt B-Tree index with " + std::to_string(count) + " paths from RocksDB.");
@@ -55,7 +59,7 @@ void KallistoServer::setSyncMode(SyncMode mode) {
     }
 }
 
-std::string KallistoServer::buildFullKey(const std::string& path, const std::string& key) {
+std::string KallistoServer::buildFullKey(const std::string& path, const std::string& key) const {
     return path + "/" + key;
 }
 
