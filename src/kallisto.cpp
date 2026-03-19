@@ -6,7 +6,7 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
-    // 2^20, bitwise AND for fast modulo when used in hash index formula
+    // 2^20, bitwise AND for fast modulo
     constexpr size_t cuckoo_table_capacity=1048576;
     storage = std::make_unique<ShardedCuckooTable>(cuckoo_table_capacity);
 
