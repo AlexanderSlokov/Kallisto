@@ -5,17 +5,16 @@
 namespace kallisto {
 
 KallistoServer::KallistoServer() {
-    // 2^20, bitwise AND for fast modulo
-    const size_t cuckoo_table_capacity=1048576;
+    // 2^20, bitwise AND for fast modulo when used in hash index formula
+    constexpr size_t cuckoo_table_capacity=1048576;
     storage = std::make_unique<ShardedCuckooTable>(cuckoo_table_capacity);
 
-    // B-Tree with high degree (100) limit tree height to ~3 levels for 1M entries.
+    // B-Tree with high degree (100) limit tree height to ~3 levels for 1M entries. 
     // This optimizes Cache Locality, reduces memory access times and CPU Pointer Chasing when validating paths.
     constexpr size_t btree_degree = 100;
     path_index = std::make_unique<TlsBTreeManager>(btree_degree, nullptr);
     
-    // CuckooTable will starts EMPTY and warms up via cache-miss fallback
-    // to prevent self-DDoS it's RocksDB
+    // Starts EMPTY and warms up via cache-miss fallback to prevent self-DDoS RocksDB
     rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
     if (!rocksdb_persistence->is_open()) {
         LOG_WARN("[CLI] RocksDB unavailable — running in-memory only!");
@@ -40,7 +39,7 @@ KallistoServer::~KallistoServer() {
     }
 }
 
-void KallistoServer::setSyncMode(KallistoServer::SyncMode mode) {
+void KallistoServer::setSyncMode(SyncMode mode) {
     sync_mode = mode;
     if (sync_mode == SyncMode::IMMEDIATE) {
         LOG_INFO("[CONFIG] Switched to IMMEDIATE Sync Mode (Safe).");
@@ -56,7 +55,7 @@ void KallistoServer::setSyncMode(KallistoServer::SyncMode mode) {
     }
 }
 
-std::string KallistoServer::buildFullKey(const std::string& path, const std::string& key) const {
+std::string KallistoServer::buildFullKey(const std::string& path, const std::string& key) {
     return path + "/" + key;
 }
 
@@ -72,7 +71,10 @@ bool KallistoServer::putSecret(const std::string& path, const std::string& key, 
     entry.created_at = std::chrono::system_clock::now();
     entry.ttl = 3600; // Default TTL
 
-    // 3. RocksDB FIRST (Write-Ahead mindset)
+    // Secret must be persisted on RocksDB first (Write-Ahead).
+    // Clang-Tidy may complain about non-const member function,
+    // but PUT function should make the machine state change, 
+    // so it is not const.
     std::string full_key = buildFullKey(path, key);
     if (rocksdb_persistence) {
         bool persisted = rocksdb_persistence->put(full_key, entry);
@@ -84,7 +86,10 @@ bool KallistoServer::putSecret(const std::string& path, const std::string& key, 
 
     // 4. Store in CuckooTable (cache)
     bool result = storage->insert(full_key, entry);
-    
+    if (result) {
+        unsaved_ops_count++;
+        check_and_sync();    // Should check to flush to RocksDB if needed
+    }
     return result;
 }
 
@@ -105,7 +110,7 @@ std::string KallistoServer::getSecret(const std::string& path, const std::string
     if (!entry.has_value() && rocksdb_persistence) {
         auto disk_entry = rocksdb_persistence->get(full_key);
         if (disk_entry.has_value()) {
-            LOG_INFO("[ROCKSDB] Cache miss, found on disk. Populating CuckooTable.");
+            LOG_INFO("[ROCKSDB] Cache miss but found on disk. Populating CuckooTable.");
             storage->insert(full_key, disk_entry.value());
             path_index->update(disk_entry->path);
             return disk_entry->value;
@@ -113,48 +118,83 @@ std::string KallistoServer::getSecret(const std::string& path, const std::string
     }
     
     if (entry) {
-        LOG_INFO("[CUCKOO] HIT! Value retrieved.");
+        LOG_INFO("[CUCKOO] Value retrieved.");
         return entry->value;
     } else {
-        LOG_WARN("[CUCKOO] MISS! Secret not found.");
+        LOG_WARN("[CUCKOO] Secret not found.");
         return "";
     }
 }
 
 bool KallistoServer::deleteSecret(const std::string& path, const std::string& key) {
-    std::string full_key = buildFullKey(path, key);
+    // Prepare the whole key to delete
+    const std::string full_key = buildFullKey(path, key);
     
-    // RocksDB FIRST
+    // Delete at Persistence layer first to ensure it won't be "resurrected" after crash.
     if (rocksdb_persistence) {
-        bool persisted = rocksdb_persistence->del(full_key);
-        if (!persisted) {
-            LOG_ERROR("[CLI] Failed to delete from RocksDB");
+        if (!rocksdb_persistence->del(full_key)) {
+            LOG_ERROR("[CLI] Fail while persisting deletion for key: " + full_key + 
+                      " at path: " + path + ". Deletion aborted to maintain consistency.");
             return false;
         }
     }
     
-    bool result = storage->remove(full_key);
-    return result;
+    // Delete at Cache
+    bool cache_removed = storage->remove(full_key);
+    
+    // Use DEBUG level to avoid spam
+    if (cache_removed) {
+        LOG_DEBUG("[STORAGE] Successfully removed secret: " + full_key);
+    } else {
+        // Key may have been deleted from disk but not found in cache.
+        // This is not necessarily an error, but it should be noted.
+        LOG_WARN("[STORAGE] Key deleted from disk but not found in cache: " + full_key);
+    }
+    // If successfully deleted from disk, consider it successful (in terms of data persistence)
+    return true; 
 }
 
 void KallistoServer::rebuildIndices(const std::vector<SecretEntry>& secrets) {
-    LOG_INFO("[RECOVERY] Rebuilding state from " + std::to_string(secrets.size()) + " entries...");
-    for (const auto& entry : secrets) {
-        // 1. Rebuild B-Tree
-        path_index->update(entry.path);
-        
-        // 2. Re-populate Cuckoo Table
-        std::string full_key = buildFullKey(entry.path, entry.key);
-        storage->insert(full_key, entry);
+
+    if (secrets.empty()) {
+        return;
     }
-    LOG_INFO("[RECOVERY] Completed.");
+
+    auto start_time = std::chrono::steady_clock::now();
+    LOG_INFO("[RECOVERY] Starting state reconstruction for " + std::to_string(secrets.size()) + " entries...");
+
+    std::unordered_set<std::string> seen_paths;
+    size_t processed_count = 0;
+
+    for (const auto& entry : secrets) {
+        // Only update B-Tree if this path hasn't been seen during this recovery
+        if (seen_paths.insert(entry.path).second) {
+            path_index->update(entry.path);
+        }
+        
+        storage->insert(buildFullKey(entry.path, entry.key), entry);
+
+        // Show progress every 100k entries
+        processed_count++;
+        if (processed_count % 100000 == 0) {
+            LOG_INFO("[RECOVERY] Progress: " + std::to_string(processed_count) + " entries processed...");
+        }
+    }
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    LOG_INFO("[RECOVERY] Completed in " + std::to_string(duration) + " ms (" + 
+             std::to_string(secrets.size()) + " entries restored).");
 }
 
 void KallistoServer::check_and_sync() {
-    // With RocksDB, every write is already persisted.
-    // This is kept for legacy SyncMode::IMMEDIATE flush behavior.
     if (sync_mode == SyncMode::IMMEDIATE && rocksdb_persistence) {
         rocksdb_persistence->flush();
+    } 
+    
+    else if (sync_mode == SyncMode::BATCH && unsaved_ops_count >= SYNC_THRESHOLD) {
+        LOG_INFO("[PERSISTENCE] Threshold reached, flushing " + std::to_string(unsaved_ops_count) + " ops to disk...");
+        force_save();
     }
 }
 
