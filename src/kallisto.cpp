@@ -76,14 +76,12 @@ bool KallistoServer::putSecret(const std::string& path, const std::string& key, 
     entry.ttl = 3600; // Default TTL
 
     // Secret must be persisted on RocksDB first (Write-Ahead).
-    // Clang-Tidy may complain about non-const member function,
-    // but PUT function should make the machine state change, 
-    // so it is not const.
+    // This ensures node crashes won't result in data loss.
     std::string full_key = buildFullKey(path, key);
     if (rocksdb_persistence) {
         bool persisted = rocksdb_persistence->put(full_key, entry);
         if (!persisted) {
-            LOG_ERROR("[CLI] Failed to persist to RocksDB");
+            LOG_ERROR("[CLI] Failed to persist PUT operation to RocksDB for key: " + full_key);
             return false;
         }
     }
