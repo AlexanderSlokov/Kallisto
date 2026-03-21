@@ -7,8 +7,6 @@
 #include "kallisto/kallisto.hpp"
 #include "kallisto/logger.hpp"
 
-// Ideally, the server might be heavy (large memory allocation for tables).
-// Managing it via unique_ptr ensures clean shutdown and allows for lazy initialization if needed.
 std::unique_ptr<kallisto::KallistoServer> server;
 
 void printHelp() {
@@ -27,18 +25,11 @@ void printHelp() {
 void handlePut(std::stringstream& ss) {
     std::string path, key, value;
     ss >> path >> key;
-    // Value might contain spaces? For MVP, we assume no spaces or read rest of line.
-    // Let's read the rest of the line to allow "some secret value"
+    
     std::string rest;
     std::getline(ss, rest);
-    
-    // Trim leading whitespace from getline
     size_t first = rest.find_first_not_of(' ');
-    if (std::string::npos != first) {
-        value = rest.substr(first);
-    } else {
-        value = rest; 
-    }
+    value = (first != std::string::npos) ? rest.substr(first) : rest;
 
     if (path.empty() || key.empty() || value.empty()) {
         kallisto::warn("PUT requires path, key, and value.");
@@ -81,11 +72,9 @@ void handleDelete(std::stringstream& ss) {
 void runBenchmark(int count) {
     std::cout << "--- Starting Benchmark (" + std::to_string(count) + " ops) ---\n";
     
-    // Disable logging during benchmark for accurate measurement
     auto prev_level = kallisto::Logger::getInstance().getLevel();
     kallisto::Logger::getInstance().setLevel(kallisto::LogLevel::NONE);
     
-    // 0. Pre-generate Data (Exclude string gen from benchmark time)
     std::cout << "[BENCH] Pre-generating data...\n";
     std::vector<std::string> paths, keys, vals;
     paths.reserve(count);
@@ -101,14 +90,12 @@ void runBenchmark(int count) {
     std::cout << "[BENCH] Running (logs disabled for accuracy)...\n";
     auto start = std::chrono::high_resolution_clock::now();
     
-    // 1. Write Phase
     for (int i = 0; i < count; ++i) {
         server->putSecret(paths[i], keys[i], vals[i]);
     }
     
     auto mid = std::chrono::high_resolution_clock::now();
     
-    // 2. Read Phase (Hot path)
     int hits = 0;
     for (int i = 0; i < count; ++i) {
         std::string val = server->getSecret(paths[i], keys[i]);
@@ -117,10 +104,8 @@ void runBenchmark(int count) {
 
     auto end = std::chrono::high_resolution_clock::now();
     
-    // Restore log level
     kallisto::Logger::getInstance().setLevel(prev_level);
 
-    // Stats Calculation
     std::chrono::duration<double> write_sec = mid - start;
     std::chrono::duration<double> read_sec = end - mid;
 
@@ -140,7 +125,6 @@ void processLine(const std::string& line) {
     std::string cmd;
     ss >> cmd;
 
-    // Normalize command to uppercase
     for (auto & c: cmd) c = toupper(c);
 
     if (cmd == "PUT") { handlePut(ss);
@@ -160,7 +144,6 @@ void processLine(const std::string& line) {
     else if (cmd == "MODE") {
         std::string mode_str;
         ss >> mode_str;
-        // toupper mode_str
         for (auto & c: mode_str) c = toupper(c);
 
         if (mode_str == "STRICT" || mode_str == "IMMEDIATE") {
@@ -177,7 +160,6 @@ void processLine(const std::string& line) {
         std::string level_str;
         ss >> level_str;
         if (level_str.empty()) {
-            // Show current level
             auto lvl = kallisto::Logger::getInstance().getLevel();
             const char* names[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "NONE"};
             std::cout << "Current log level: " << names[static_cast<int>(lvl)] << "\n";
@@ -199,15 +181,11 @@ void processLine(const std::string& line) {
 }
 
 int main(int argc, char** argv) {
-    // Initialize Logger
-    // Default to WARN to keep CLI clean. Use LOGLEVEL command to change at runtime.
-    // For max benchmark perf, compile with -DKALLISTO_LOG_LEVEL_NONE
     kallisto::Logger::getInstance().setLevel(kallisto::LogLevel::WARN);
     kallisto::Logger::getInstance().setThreadName("main");
 
     server = std::make_unique<kallisto::KallistoServer>();
 
-    // Interactive Mode
     LOG_INFO("Kallisto Server Ready. Type HELP for commands.");
     
     std::string line;
