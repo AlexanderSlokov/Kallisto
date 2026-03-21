@@ -8,7 +8,6 @@ namespace kallisto {
 #ifdef KALLISTO_HAS_ROCKSDB
 
 RocksDBStorage::RocksDBStorage(const std::string& db_path) {
-    // Ensure parent directory exists
     try {
         if (!std::filesystem::exists(db_path)) {
             std::filesystem::create_directories(db_path);
