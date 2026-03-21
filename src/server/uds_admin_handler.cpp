@@ -73,6 +73,7 @@ void UdsAdminHandler::stop() {
 
     // By closing the socket, accept() will unblock and fail
     if (server_fd_ >= 0) {
+        ::shutdown(server_fd_, SHUT_RDWR); // Kick accept() out
         ::close(server_fd_);
         server_fd_ = -1;
     }
