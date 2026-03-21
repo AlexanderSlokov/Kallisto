@@ -63,7 +63,7 @@ private:
     // Default to safe mode
     SyncMode sync_mode = SyncMode::IMMEDIATE; 
     size_t unsaved_ops_count = 0;
-    static constexpr size_t SYNC_THRESHOLD = 10000;
+    static constexpr size_t SYNC_THRESHOLD = 100000;
     void check_and_sync();
 
     std::string buildFullKey(const std::string& path, const std::string& key) const;
