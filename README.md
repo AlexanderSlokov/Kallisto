@@ -77,57 +77,30 @@ docker build -t kallisto-server:latest .
 # Or using Makefile: make docker-build
 ```
 
-## CLI Mode (Interactive REPL)
+## Admin CLI (Unix Domain Socket)
 
-Start the interactive CLI:
+Start the production server first:
 
 ```bash
-make run
+make run-server
+```
+
+Then use the admin client to control persistence behavior securely over UDS:
+
+```bash
+./build/kallisto <COMMAND>
 ```
 
 ### Available Commands
 
-It feels like the Redis CLI, but it is not Redis.
-
 | Command | Description | Example |
 |---------|-------------|---------|
-| `PUT <path> <key> <value>` | Store a secret | `PUT /prod/db password s3cret` |
-| `GET <path> <key>` | Retrieve a secret | `GET /prod/db password` |
-| `DEL <path> <key>` | Delete a secret | `DEL /prod/db password` |
-| `BENCH <count>` | Run performance benchmark | `BENCH 1000000` |
-| `SAVE` | Force flush to disk | `SAVE` |
-| `MODE <STRICT\|BATCH>` | Set persistence mode | `MODE BATCH` |
-| `LOGLEVEL <LEVEL>` | Set log verbosity | `LOGLEVEL DEBUG` |
-| `HELP` | Show all commands | `HELP` |
-| `EXIT` | Quit | `EXIT` |
+| `SAVE` | Force flush Cuckoo/batch to RocksDB | `./build/kallisto SAVE` |
+| `MODE BATCH` | Switch to asynchronous batch persistence | `./build/kallisto MODE BATCH` |
+| `MODE IMMEDIATE`| Switch to synchronous strict persistence | `./build/kallisto MODE IMMEDIATE` |
+| `--help` | Show all commands | `./build/kallisto --help` |
 
-### Usage Example
-
-```bash
-# Put a secret
-> PUT /prod/db password super-secret-123
-OK
-
-# Get a secret
-> GET /prod/db password
-super-secret-123
-
-# Delete a secret
-> DEL /prod/db password
-OK
-
-# Set mode to BATCH
-> MODE BATCH
-OK (Mode: BATCH)
-
-# Run performance benchmark
-> BENCH 1000000
-Write Time: 4.4811s | RPS: 223158.4057
-Read Time : 2.7826s | RPS: 359379.4067
-Hits      : 1000000/1000000
-> SAVE
-OK (Saved to disk)
-```
+> 🔒 **Security Note**: The UDS listener binds to `/var/run/kallisto.sock` and restricts access via `0600` (Owner-only R/W). Only the user (or root) executing the server process can issue admin commands.
 
 ## Server Mode
 
@@ -453,8 +426,8 @@ make test-persistence      # Correctness: CRUD + crash recovery
 │       └─────────────┼─────────────┘    (SO_REUSEPORT)       │
 │                     ▼                                       │
 │          ┌──────────────────────┐                           │
-│          │      BTreeIndex      │ (Gatekeeper / Path Index) │
-│          │   (shared_mutex)     │                           │
+│          │    KallistoEngine    │                           │
+│          │   (The One True Core)│                           │
 │          └──────────┬───────────┘                           │
 │                     │ Validation                            │
 │           ┌─────────┴─────────────────────┐                 │
@@ -466,5 +439,5 @@ make test-persistence      # Correctness: CRUD + crash recovery
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly.
-The `BTreeIndex` acts as a multi-reader/single-writer Gatekeeper, protecting against O(n) Hash-Flooding attacks by filtering invalid keys *before* fetching from RAM/Disk. Hit data is instantly fetched from the concurrent `ShardedCuckooTable` (64 shards lock-free lookup), while persisting writes crash-safely to `RocksDBStorage` (WAL).
+Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly. Protocol-agnostic network handlers simply delegate all actions to the thread-safe `KallistoEngine`.
+The inner layers (B-Tree, CuckooTable, RocksDB) are strictly encapsulated. Hit data is instantly fetched from the concurrent `ShardedCuckooTable` (64 shards lock-free lookup), while persisting writes crash-safely to `RocksDBStorage` (WAL). Administrative commands (like changing persistence modes or forcing flushes) are routed entirely out-of-band via an OS-level Unix Domain Socket.

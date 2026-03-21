@@ -36,15 +36,15 @@
 
 #### 21-03-2026
 
-- [ ] Phát hiện toàn bộ logic điều khiển của CLI chỉ tác động đến chế độ chạy trong terminal (trên file main.cpp), không hề tác động đến chế độ chạy server (trên file kallisto_server.cpp).
+- [x] Phát hiện toàn bộ logic điều khiển của CLI chỉ tác động đến chế độ chạy trong terminal (trên file main.cpp), không hề tác động đến chế độ chạy server (trên file kallisto_server.cpp).
 
-- [ ] CLI khởi tạo và bao bọc toàn bộ bằng class `KallistoServer` (src/kallisto.cpp). Server hoàn toàn bỏ sọt class `KallistoServer`. Trong kallisto_server.cpp đang tự khởi tạo lại các biến shared_ptr<ShardedCuckooTable> và shared_ptr<RocksDBStorage>, sau đó ném cho HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB tự bơi (Nó vĩnh viễn kẹt ở Batch Mode trần trụi nhất).
+- [x] CLI khởi tạo và bao bọc toàn bộ bằng class `KallistoServer` (src/kallisto.cpp). Server hoàn toàn bỏ sọt class `KallistoServer`. Trong kallisto_server.cpp đang tự khởi tạo lại các biến shared_ptr<ShardedCuckooTable> và shared_ptr<RocksDBStorage>, sau đó ném cho HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB tự bơi (Nó vĩnh viễn kẹt ở Batch Mode trần trụi nhất).
 
-- [ ] CLI có biến đếm `unsaved_ops_count`, cấu hình `SyncMode::IMMEDIATE / BATCH` và tự động kích hoạt `check_and_sync()` để ép đĩa Flush. Server không hề biết những thứ đó tồn tại. HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB. Nó vĩnh viễn kẹt ở Batch Mode.
+- [x] CLI có biến đếm `unsaved_ops_count`, cấu hình `SyncMode::IMMEDIATE / BATCH` và tự động kích hoạt `check_and_sync()` để ép đĩa Flush. Server không hề biết những thứ đó tồn tại. HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB. Nó vĩnh viễn kẹt ở Batch Mode.
 
-- [ ] **Bỏ quên dữ liệu TTL (Time-To-Live)**: Khi nhập lệnh PUT trên CLI, `entry.ttl` được hardcode gán bằng 3600 (1 tiếng) (src/kallisto.cpp:71). Khi bắn request `POST /v1/secret/data/...` trên Server, `HttpHandler` và `GrpcHandler` chỉ gán key, value, created_at nhưng lại cố tình bỏ quên gán TTL, dẫn đến `entry.ttl` bị dính rác mặc định (uninitialized memory hoặc 0).
+- [x] **Bỏ quên dữ liệu TTL (Time-To-Live)**: Khi nhập lệnh PUT trên CLI, `entry.ttl` được hardcode gán bằng 3600 (1 tiếng) (src/kallisto.cpp:71). Khi bắn request `POST /v1/secret/data/...` trên Server, `HttpHandler` và `GrpcHandler` chỉ gán key, value, created_at nhưng lại cố tình bỏ quên gán TTL, dẫn đến `entry.ttl` bị dính rác mặc định (uninitialized memory hoặc 0).
 
-- [ ] **Lặp code (Code Duplication) ở B-Tree Firewall**: Các thao tác cực kỳ cốt lõi như Ghi chú đường dẫn vào B-Tree (Step 0) hoặc Check Cache Miss đẩy xuống RocksDB (Step 2)... thay vì nằm trong một Repository pattern chung, thì nó lại copy-paste y hệt dán vào khắp 3 file (`kallisto.cpp`, `http_handler.cpp` và `grpc_handler.cpp`).
+- [x] **Lặp code (Code Duplication) ở B-Tree Firewall**: Các thao tác cực kỳ cốt lõi như Ghi chú đường dẫn vào B-Tree (Step 0) hoặc Check Cache Miss đẩy xuống RocksDB (Step 2)... thay vì nằm trong một Repository pattern chung, thì nó lại copy-paste y hệt dán vào khắp 3 file (`kallisto.cpp`, `http_handler.cpp` và `grpc_handler.cpp`).
 
 ---
 
@@ -80,3 +80,10 @@
 - [x] **Văng pthread lock Invalid argument (Core dumped) trên lệnh CLI yêu cầu EXIT**: Vấn đề nằm ở thứ tự khởi tạo và hủy các biến static/global trong C++: Trong main.cpp khai báo con trỏ server ở biến Global `std::unique_ptr<kallisto::KallistoServer> server;` `Class Logger::getInstance()` lại dùng function-local static variable. Khi gõ EXIT, chương trình chạy lệnh exit(0). Lệnh này kích hoạt tự động việc hủy (Destruct) các biến static/global theo chiều ngược lại so với lúc chúng sinh ra. Do đó, Logger (chứa `std::mutex`) bị hủy trước con trỏ server. Vài micro-giây sau khi Logger biến mất, ~KallistoServer() mới chạy và kéo theo `~RocksDBStorage()`. Hàm này lại cố gọi LOG_INFO("[ROCKSDB] Database closed.") để print ra màn hình. Khi đó nó cố lock một cái Mutex đã biến mất dẫn đến Invalid argument.
 
 Khắc phục: Gọi hàm `server.reset();` ngay phía trên `exit(0)`. Điều này ép server đóng một cách an toàn và giải phóng RocksDB trước khi cơ chế dọn dẹp static của C++ quét tới hàm Logger.
+
+### Phase 4: "The One True Core" & UDS Admin CLI
+- **Status:** COMPLETE
+- **Architecture:** Eliminated Split-Brain architecture. Introduced `KallistoEngine` Repository encapsulating all storage layers (B-Tree, Cuckoo, RocksDB, TTL Management). Handlers are now purely unopinionated I/O routers.
+- **Security:** Removed legacy REPL. Implemented thin UDS Admin CLI securely bound to `/var/run/kallisto.sock` using OS-level `0600` permissions.
+- **Testing:** Comprehensive Test-Driven Development (TDD) resulting in 100% test pass rate with coverage profiling.
+- **Core Files:** `kallisto_engine.hpp/cpp`, `uds_admin_handler.hpp/cpp`, `main.cpp`.
