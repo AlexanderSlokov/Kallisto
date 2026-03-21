@@ -114,7 +114,9 @@ bool RocksDBStorage::del(const std::string& key) {
 }
 
 void RocksDBStorage::iterate_all(std::function<void(const SecretEntry&)> callback) const {
-    if (!db_open_ || !db_raw_) return;
+    if (!db_open_ || !db_raw_) { 
+		return;
+	}
 
     rocksdb::ReadOptions iter_opts = read_opts_;
     iter_opts.total_order_seek = true;

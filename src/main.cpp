@@ -187,6 +187,7 @@ void processLine(const std::string& line) {
         }
     }
     else if (cmd == "EXIT" || cmd == "QUIT") {
+        server.reset(); // Safely shut down the server before static destructors tear down Logger
         exit(0);
     }
     else if (cmd == "HELP") {
