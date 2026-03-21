@@ -64,16 +64,15 @@ std::string KallistoServer::buildFullKey(const std::string& path, const std::str
 }
 
 bool KallistoServer::putSecret(const std::string& path, const std::string& key, const std::string& value) {
-    // 1. Ensure path exists in path index
+	
     path_index->update(path);
     
-    // 2. Prepare secret entry
     SecretEntry entry;
     entry.key = key;
     entry.value = value;
     entry.path = path;
     entry.created_at = std::chrono::system_clock::now();
-    entry.ttl = 3600; // Default TTL
+    entry.ttl = 3600;
 
     // Secret must be persisted on RocksDB first (Write-Ahead).
     // This ensures node crashes won't result in data loss.
@@ -86,7 +85,6 @@ bool KallistoServer::putSecret(const std::string& path, const std::string& key, 
         }
     }
 
-    // 4. Store in CuckooTable (cache)
     bool result = storage->insert(full_key, entry);
     if (result) {
         unsaved_ops_count++;
@@ -96,19 +94,16 @@ bool KallistoServer::putSecret(const std::string& path, const std::string& key, 
 }
 
 std::string KallistoServer::getSecret(const std::string& path, const std::string& key) {
-    // Step 1: Validate Path using B-Tree
     LOG_DEBUG("[B-TREE] Validating path...");
     if (!path_index->get_local()->validatePath(path)) {
         LOG_ERROR("[B-TREE] Path validation failed: " + path);
         return "";
     }
 
-    // Step 2: Try CuckooTable (hot cache, sub-µs)
     LOG_DEBUG("[CUCKOO] Looking up secret...");
     std::string full_key = buildFullKey(path, key);
     auto entry = storage->lookup(full_key);
     
-    // Step 3: Cache miss → fallback to RocksDB
     if (!entry.has_value() && rocksdb_persistence) {
         auto disk_entry = rocksdb_persistence->get(full_key);
         if (disk_entry.has_value()) {
@@ -129,7 +124,6 @@ std::string KallistoServer::getSecret(const std::string& path, const std::string
 }
 
 bool KallistoServer::deleteSecret(const std::string& path, const std::string& key) {
-    // Prepare the whole key to delete
     const std::string full_key = buildFullKey(path, key);
     
     // Delete at Persistence layer first to ensure it won't be "resurrected" after crash.
