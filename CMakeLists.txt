@@ -25,7 +25,6 @@ add_library(kallisto_lib
     src/tls_btree_manager.cpp
     src/rocksdb_storage.cpp
     src/kallisto.cpp
-    helpers/logger.cpp
     # Threading infrastructure (Phase 1.1)
     src/event/dispatcher_impl.cpp
     src/event/worker_impl.cpp
@@ -58,9 +57,9 @@ endif()
 add_executable(kallisto src/main.cpp)
 target_link_libraries(kallisto kallisto_lib)
 
-# ===========================================================================
+# ==============================================================================
 # Testing Infrastructure (CTest & GTest)
-# ===========================================================================
+# ==============================================================================
 enable_testing()
 find_package(GTest CONFIG REQUIRED)
 
