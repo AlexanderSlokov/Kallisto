@@ -11,9 +11,8 @@
 #include "kallisto/event/worker.hpp"
 #include "kallisto/server/grpc_handler.hpp"
 #include "kallisto/server/http_handler.hpp"
-#include "kallisto/sharded_cuckoo_table.hpp"
-#include "kallisto/rocksdb_storage.hpp"
-#include "kallisto/tls_btree_manager.hpp"
+#include "kallisto/server/uds_admin_handler.hpp"
+#include "kallisto/kallisto_engine.hpp"
 #include "kallisto/logger.hpp"
 
 #include <csignal>
@@ -87,19 +86,6 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
     
-    // Create shared storage (1M bucket capacity)
-    auto storage = std::make_shared<ShardedCuckooTable>(1024 * 1024);
-    info("[SERVER] ShardedCuckooTable created (1M buckets, 64 shards)");
-    
-    // Create worker pool FIRST so it can be passed to TLS Manager
-    auto pool = createWorkerPool(num_workers);
-
-    // Create B-Tree firewall (O(logN) gateway)
-    auto path_index = std::make_shared<TlsBTreeManager>(5, pool.get());
-    info("[SERVER] TlsBTreeManager created");
-
-    // Create RocksDB persistence layer
-    // Parse --db-path if provided
     std::string db_path = "/data/kallisto/rocksdb";
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -107,21 +93,11 @@ int main(int argc, char** argv) {
             db_path = arg.substr(10);
         }
     }
-    auto persistence = std::make_shared<RocksDBStorage>(db_path);
-    if (persistence->is_open()) {
-        info("[SERVER] RocksDB persistence layer opened at: " + db_path);
-        
-        // Populate B-Tree from RocksDB so cache-miss aren't blocked
-        size_t count = 0;
-        persistence->iterate_all([&](const SecretEntry& entry) {
-            path_index->update(entry.path);
-            count++;
-        });
-        info("[SERVER] Rebuilt B-Tree index with " + std::to_string(count) + " paths");
-    } else {
-        warn("[SERVER] RocksDB persistence unavailable — running in-memory only");
-        persistence = nullptr;  // Handlers check for nullptr
-    }
+    
+    auto pool = createWorkerPool(num_workers);
+    
+    auto engine = std::make_shared<KallistoEngine>(db_path);
+    info("[SERVER] KallistoEngine created and initialized with DB path: " + db_path);
     
     // Store handlers to prevent premature destruction
     std::vector<std::shared_ptr<server::HttpHandler>> http_handlers;
@@ -136,23 +112,25 @@ int main(int argc, char** argv) {
             
             // Each worker binds HTTP port (SO_REUSEPORT)
             auto http_handler = std::make_shared<server::HttpHandler>(
-                worker.dispatcher(), storage, persistence, path_index);
+                worker.dispatcher(), engine);
             worker.bindListener(http_port, [http_handler](int fd) {
                 http_handler->onNewConnection(fd);
             });
             http_handlers.push_back(http_handler);
             
             // Each worker binds gRPC port (SO_REUSEPORT)
-            // Note: gRPC manages its own listening socket internally,
-            //       but we use SO_REUSEPORT address for the builder
             auto grpc_handler = std::make_shared<server::GrpcHandler>(
-                worker.dispatcher(), storage, persistence, path_index);
+                worker.dispatcher(), engine);
             grpc_handler->initialize(grpc_port);
             grpc_handlers.push_back(grpc_handler);
         }
         
         info("[SERVER] All listeners bound successfully");
     });
+    
+    // Start Unix Domain Socket Admin Handler
+    auto uds_admin = std::make_unique<server::UdsAdminHandler>(engine);
+    uds_admin->start();
     
     info("[SERVER] Kallisto is READY. Accepting connections.");
     info("[SERVER] Press Ctrl+C to shutdown.");
@@ -175,11 +153,12 @@ int main(int argc, char** argv) {
     // Stop worker pool (stops dispatchers, joins threads)
     pool->stop();
     
-    // Flush RocksDB on shutdown to ensure all data is persisted
-    if (persistence) {
-        persistence->flush();
-        info("[SERVER] RocksDB flushed.");
-    }
+    // Stop UDS admin
+    uds_admin->stop();
+    
+    // Flush Engine on shutdown
+    engine->force_flush();
+    info("[SERVER] KallistoEngine flushed.");
     
     info("[SERVER] Shutdown complete.");
     return 0;

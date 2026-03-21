@@ -1,8 +1,7 @@
 #pragma once
 
-#include "kallisto/event/dispatcher.hpp"
-#include "kallisto/sharded_cuckoo_table.hpp"
 #include "kallisto/net/listener.hpp"
+#include "kallisto/kallisto_engine.hpp"
 
 #include <memory>
 #include <cstdint>
@@ -15,11 +14,7 @@ class Server;
 class ServerCompletionQueue;
 }
 
-#include "kallisto/tls_btree_manager.hpp"
-
 namespace kallisto {
-
-class RocksDBStorage;  // Forward declaration
 
 namespace server {
 
@@ -38,9 +33,7 @@ namespace server {
 class GrpcHandler {
 public:
     GrpcHandler(event::Dispatcher& dispatcher,
-                std::shared_ptr<ShardedCuckooTable> storage,
-                std::shared_ptr<RocksDBStorage> persistence = nullptr,
-                std::shared_ptr<TlsBTreeManager> path_index = nullptr);
+                std::shared_ptr<KallistoEngine> engine);
     ~GrpcHandler();
     
     /**
@@ -75,9 +68,7 @@ private:
     void spawnList();
     
     event::Dispatcher& dispatcher_;
-    std::shared_ptr<ShardedCuckooTable> storage_;
-    std::shared_ptr<RocksDBStorage> persistence_;  // RocksDB persistence layer
-    std::shared_ptr<TlsBTreeManager> path_index_;  // DoS Gateway
+    std::shared_ptr<KallistoEngine> engine_;
     
     std::unique_ptr<SecretServiceImpl> service_;
     std::unique_ptr<grpc::Server> server_;

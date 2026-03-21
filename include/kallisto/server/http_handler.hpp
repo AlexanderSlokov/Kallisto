@@ -1,8 +1,7 @@
 #pragma once
 
-#include "kallisto/event/dispatcher.hpp"
-#include "kallisto/sharded_cuckoo_table.hpp"
 #include "kallisto/net/listener.hpp"
+#include "kallisto/kallisto_engine.hpp"
 
 #include <memory>
 #include <string>
@@ -11,11 +10,10 @@
 #include <vector>
 #include <functional>
 
-#include "kallisto/tls_btree_manager.hpp"
+#include <functional>
 
 namespace kallisto {
 
-class RocksDBStorage;  // Forward declaration
 
 namespace server {
 
@@ -37,9 +35,7 @@ namespace server {
 class HttpHandler {
 public:
     HttpHandler(event::Dispatcher& dispatcher,
-                std::shared_ptr<ShardedCuckooTable> storage,
-                std::shared_ptr<RocksDBStorage> persistence = nullptr,
-                std::shared_ptr<TlsBTreeManager> path_index = nullptr);
+                std::shared_ptr<KallistoEngine> engine);
     ~HttpHandler();
     
     /**
@@ -98,9 +94,7 @@ private:
     static std::string statusText(int code);
     
     event::Dispatcher& dispatcher_;
-    std::shared_ptr<ShardedCuckooTable> storage_;
-    std::shared_ptr<RocksDBStorage> persistence_;  // RocksDB persistence layer
-    std::shared_ptr<TlsBTreeManager> path_index_;  // DoS Gateway
+    std::shared_ptr<KallistoEngine> engine_;
     std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 

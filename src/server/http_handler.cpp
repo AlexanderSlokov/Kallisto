@@ -1,5 +1,4 @@
 #include "kallisto/server/http_handler.hpp"
-#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 #include <sys/epoll.h>
@@ -18,13 +17,9 @@ namespace server {
 // ---------------------------------------------------------------------------
 
 HttpHandler::HttpHandler(event::Dispatcher& dispatcher,
-                         std::shared_ptr<ShardedCuckooTable> storage,
-                         std::shared_ptr<RocksDBStorage> persistence,
-                         std::shared_ptr<TlsBTreeManager> path_index)
+                         std::shared_ptr<KallistoEngine> engine)
     : dispatcher_(dispatcher)
-    , storage_(std::move(storage))
-    , persistence_(std::move(persistence))
-    , path_index_(std::move(path_index)) {
+    , engine_(std::move(engine)) {
 }
 
 HttpHandler::~HttpHandler() {
@@ -269,29 +264,21 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 // ---------------------------------------------------------------------------
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
-    // Step 0: B-Tree validation (DoS protection, O(log N))
-    if (path_index_ && !path_index_->get_local()->validatePath(path)) {
-        kallisto::warn("[HTTP] B-Tree validation failed for GET path: " + path);
-        sendError(conn, 404, "Secret not found (B-Tree reject)");
+    if (!engine_) {
+        sendError(conn, 500, "Engine not initialized");
         return;
     }
-
-    // Step 1: Try CuckooTable (hot cache, sub-µs)
-    auto result = storage_->lookup(path);
     
-    // Step 2: Cache miss → fallback to RocksDB (disk)
-    if (!result.has_value() && persistence_) {
-        auto disk_result = persistence_->get(path);
-        if (disk_result.has_value()) {
-            // Populate back into CuckooTable for future hits
-            // ShardedCuckooTable::insert() is thread-safe (shared_mutex per shard)
-            // Cache Stampede note: RocksDB block cache absorbs concurrent misses;
-            // multiple threads may insert the same key — CuckooTable handles this
-            // as an idempotent update (same key = overwrite, not duplicate)
-            storage_->insert(path, disk_result.value());
-            result = std::move(disk_result);
-        }
+    // Split path to dir and key
+    std::string dir = "";
+    std::string key = path;
+    auto slash = path.find_last_of('/');
+    if (slash != std::string::npos) {
+        dir = path.substr(0, slash);
+        key = path.substr(slash + 1);
     }
+    
+    auto result = engine_->get(dir, key);
     
     if (!result.has_value()) {
         sendError(conn, 404, "Secret not found");
@@ -304,28 +291,23 @@ void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
     std::string json = "{\"data\":{\"data\":{\"value\":\"" + entry.value + "\"}},"
                        "\"metadata\":{\"created_time\":" + 
                        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
-                           entry.created_at.time_since_epoch()).count()) + "}}";
+                           entry.created_at.time_since_epoch()).count()) + "," +
+                       "\"ttl\":" + std::to_string(entry.ttl) + "}}";
     
     sendResponse(conn, 200, "application/json", json);
 }
 
 void HttpHandler::handlePutSecret(Connection& conn, const std::string& path, 
                                  const std::string& body) {
-    // Basic validation
     if (path.empty() || body.empty()) {
         sendError(conn, 400, "Bad Request: Path and body required");
         return;
     }
     
-    // Step 0: Register path in B-Tree index
-    if (path_index_) {
-        path_index_->update(path);
-    }
-    
-    // Quick & dirty JSON extraction for Vault v2 request: {"data": {"foo": "bar"}}
-    // For production, use simdjson. This is minimal for prototype.
     std::string value;
+    uint32_t ttl = 3600;
     
+    // Parse value
     auto val_pos = body.find("\"value\"");
     if (val_pos != std::string::npos) {
         auto colon = body.find(':', val_pos);
@@ -336,47 +318,52 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
         }
     }
     
-    if (value.empty()) {
-        // Fallback: use entire body as value
-        value = body;
-    }
-    
-    SecretEntry entry;
-    entry.key = path;
-    entry.value = value;
-    entry.created_at = std::chrono::system_clock::now();
-    
-    // Write-Ahead mindset: RocksDB FIRST, then CuckooTable
-    // If RocksDB fails (disk full, stall) → 500 immediately, don't touch cache
-    if (persistence_) {
-        bool persisted = persistence_->put(path, entry);
-        if (!persisted) {
-            sendError(conn, 500, "Failed to persist secret to disk");
-            return;
+    // Parse ttl
+    auto ttl_pos = body.find("\"ttl\"");
+    if (ttl_pos != std::string::npos) {
+        auto colon = body.find(':', ttl_pos);
+        auto end_pos = body.find_first_of(",}", colon + 1);
+        if (colon != std::string::npos && end_pos != std::string::npos) {
+            std::string ttl_str = body.substr(colon + 1, end_pos - colon - 1);
+            ttl_str.erase(0, ttl_str.find_first_not_of(" \t\r\n"));
+            ttl_str.erase(ttl_str.find_last_not_of(" \t\r\n") + 1);
+            try {
+                ttl = std::stoul(ttl_str);
+            } catch (...) {}
         }
     }
     
-    bool ok = storage_->insert(path, entry);
+    if (value.empty()) value = body;
+    
+    std::string dir = "";
+    std::string key = path;
+    auto slash = path.find_last_of('/');
+    if (slash != std::string::npos) {
+        dir = path.substr(0, slash);
+        key = path.substr(slash + 1);
+    }
+    
+    bool ok = engine_->put(dir, key, value, ttl);
     
     if (ok) {
-        sendResponse(conn, 200, "application/json", 
-                     "{\"data\":{\"created\":true}}");
+        sendResponse(conn, 200, "application/json", "{\"data\":{\"created\":true}}");
     } else {
-        sendError(conn, 500, "Failed to store secret in cache");
+        sendError(conn, 500, "Failed to store secret in engine");
     }
 }
 
 void HttpHandler::handleDeleteSecret(Connection& conn, const std::string& path) {
-    // RocksDB FIRST: ensure deletion is persisted before removing from cache
-    if (persistence_) {
-        bool persisted = persistence_->del(path);
-        if (!persisted) {
-            sendError(conn, 500, "Failed to delete secret from disk");
-            return;
-        }
+    if (!engine_) return;
+    
+    std::string dir = "";
+    std::string key = path;
+    auto slash = path.find_last_of('/');
+    if (slash != std::string::npos) {
+        dir = path.substr(0, slash);
+        key = path.substr(slash + 1);
     }
     
-    storage_->remove(path);
+    engine_->del(dir, key);
     sendResponse(conn, 204, "", "");
 }
 

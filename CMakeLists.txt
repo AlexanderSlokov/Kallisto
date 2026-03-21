@@ -25,6 +25,7 @@ add_library(kallisto_lib
     src/tls_btree_manager.cpp
     src/rocksdb_storage.cpp
     src/kallisto.cpp
+    src/kallisto_engine.cpp
     # Threading infrastructure (Phase 1.1)
     src/event/dispatcher_impl.cpp
     src/event/worker_impl.cpp
@@ -81,6 +82,15 @@ add_executable(test_listener tests/test_listener.cpp)
 add_test(NAME ListenerTest COMMAND test_listener)
 
 # Modern GTest Suites
+add_executable(test_kallisto_engine tests/test_kallisto_engine.cpp)
+target_link_libraries(test_kallisto_engine PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME KallistoEngineTest COMMAND test_kallisto_engine)
+
+# Kallisto UDS Admin tests
+add_executable(test_uds_admin tests/test_uds_admin.cpp)
+target_link_libraries(test_uds_admin PRIVATE kallisto_server_lib kallisto_lib kallisto_proto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME UdsAdminTest COMMAND test_uds_admin)
+
 add_executable(test_btree_rcu tests/test_btree_rcu.cpp)
 target_link_libraries(test_btree_rcu PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME BTreeRCUTest COMMAND test_btree_rcu)
@@ -148,6 +158,7 @@ if(Protobuf_FOUND AND gRPC_FOUND)
        src/net/listener.cpp
        src/server/grpc_handler.cpp
        src/server/http_handler.cpp
+       src/server/uds_admin_handler.cpp
    )
    target_link_libraries(kallisto_server_lib PUBLIC kallisto_lib kallisto_proto_lib gRPC::grpc++_reflection)
 

@@ -1,5 +1,4 @@
 #include "kallisto/server/grpc_handler.hpp"
-#include "kallisto/rocksdb_storage.hpp"
 #include "kallisto/logger.hpp"
 
 #include <grpcpp/grpcpp.h>
@@ -98,13 +97,9 @@ private:
 // ---------------------------------------------------------------------------
 
 GrpcHandler::GrpcHandler(event::Dispatcher& dispatcher,
-                         std::shared_ptr<ShardedCuckooTable> storage,
-                         std::shared_ptr<RocksDBStorage> persistence,
-                         std::shared_ptr<TlsBTreeManager> path_index)
+                         std::shared_ptr<KallistoEngine> engine)
     : dispatcher_(dispatcher)
-    , storage_(std::move(storage))
-    , persistence_(std::move(persistence))
-    , path_index_(std::move(path_index))
+    , engine_(std::move(engine))
     , service_(std::make_unique<SecretServiceImpl>()) {
 }
 
@@ -194,33 +189,23 @@ void GrpcHandler::pollLoop() {
 
 
 void GrpcHandler::spawnNewCallData() {
-    auto* svc = service_.get();
-    auto* cq = cq_.get();
-    auto stor = storage_;
-    
     // GET
-    auto spawn_get = [this]() { spawnGet(); };
     spawnGet();
     
     // PUT
-    auto spawn_put = [this]() { spawnPut(); };
     spawnPut();
     
     // DELETE
-    auto spawn_del = [this]() { spawnDelete(); };
     spawnDelete();
     
     // LIST
-    auto spawn_list = [this]() { spawnList(); };
     spawnList();
 }
 
 void GrpcHandler::spawnGet() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
-    auto stor = storage_;
-    auto pers = persistence_;
-    auto p_idx = path_index_;
+    auto eng = engine_;
     
     new TypedCallData<::kallisto::GetRequest, ::kallisto::GetResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::GetRequest* req,
@@ -228,27 +213,19 @@ void GrpcHandler::spawnGet() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestGet(ctx, req, resp, cq, cq, tag);
         },
-        [stor, pers, p_idx](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
+        [eng](const ::kallisto::GetRequest& req, ::kallisto::GetResponse* resp, 
                grpc::Status* status) {
-            // Step 0: B-Tree validation
-            if (p_idx && !p_idx->get_local()->validatePath(req.path())) {
-                kallisto::warn("[GRPC] B-Tree validation failed for GET path: " + req.path());
-                *status = grpc::Status(grpc::StatusCode::NOT_FOUND, "Secret not found (B-Tree reject)");
-                return;
-            }
-
-            // Step 1: Try CuckooTable (hot cache)
-            auto result = stor->lookup(req.path());
+            if (!eng) return;
             
-            // Step 2: Cache miss → fallback to RocksDB
-            if (!result.has_value() && pers) {
-                auto disk_result = pers->get(req.path());
-                if (disk_result.has_value()) {
-                    // Populate back into CuckooTable (thread-safe)
-                    stor->insert(req.path(), disk_result.value());
-                    result = std::move(disk_result);
-                }
+            std::string dir = "";
+            std::string key = req.path();
+            auto slash = req.path().find_last_of('/');
+            if (slash != std::string::npos) {
+                dir = req.path().substr(0, slash);
+                key = req.path().substr(slash + 1);
             }
+            
+            auto result = eng->get(dir, key);
             
             if (result.has_value()) {
                 auto& entry = result.value();
@@ -269,9 +246,7 @@ void GrpcHandler::spawnGet() {
 void GrpcHandler::spawnPut() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
-    auto stor = storage_;
-    auto pers = persistence_;
-    auto p_idx = path_index_;
+    auto eng = engine_;
     
     new TypedCallData<::kallisto::PutRequest, ::kallisto::PutResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::PutRequest* req,
@@ -279,32 +254,22 @@ void GrpcHandler::spawnPut() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestPut(ctx, req, resp, cq, cq, tag);
         },
-        [stor, pers, p_idx](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
+        [eng](const ::kallisto::PutRequest& req, ::kallisto::PutResponse* resp, 
                grpc::Status* status) {
-            // Step 0: Register path in B-Tree index
-            if (p_idx) {
-                p_idx->update(req.path());
-            }
-
-            SecretEntry entry;
-            entry.key = req.path();
-            entry.value = req.value();
-            entry.created_at = std::chrono::system_clock::now();
+            if (!eng) return;
             
-            // Write-Ahead: RocksDB FIRST, then CuckooTable
-            if (pers) {
-                bool persisted = pers->put(req.path(), entry);
-                if (!persisted) {
-                    resp->set_success(false);
-                    resp->set_error("Failed to persist to disk");
-                    return;
-                }
+            std::string dir = "";
+            std::string key = req.path();
+            auto slash = req.path().find_last_of('/');
+            if (slash != std::string::npos) {
+                dir = req.path().substr(0, slash);
+                key = req.path().substr(slash + 1);
             }
             
-            bool ok = stor->insert(req.path(), entry);
+            bool ok = eng->put(dir, key, req.value(), 3600);
             resp->set_success(ok);
             if (!ok) {
-                resp->set_error("Failed to insert secret (table may be full)");
+                resp->set_error("Failed to insert secret");
             }
         },
         [this]() { spawnPut(); }
@@ -314,8 +279,7 @@ void GrpcHandler::spawnPut() {
 void GrpcHandler::spawnDelete() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
-    auto stor = storage_;
-    auto pers = persistence_;
+    auto eng = engine_;
     
     new TypedCallData<::kallisto::DeleteRequest, ::kallisto::DeleteResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::DeleteRequest* req,
@@ -323,19 +287,20 @@ void GrpcHandler::spawnDelete() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestDelete(ctx, req, resp, cq, cq, tag);
         },
-        [stor, pers](const ::kallisto::DeleteRequest& req, ::kallisto::DeleteResponse* resp, 
+        [eng](const ::kallisto::DeleteRequest& req, ::kallisto::DeleteResponse* resp, 
                grpc::Status* status) {
-            // RocksDB FIRST: ensure deletion is persisted
-            if (pers) {
-                bool persisted = pers->del(req.path());
-                if (!persisted) {
-                    resp->set_success(false);
-                    return;
-                }
+            if (!eng) return;
+            
+            std::string dir = "";
+            std::string key = req.path();
+            auto slash = req.path().find_last_of('/');
+            if (slash != std::string::npos) {
+                dir = req.path().substr(0, slash);
+                key = req.path().substr(slash + 1);
             }
             
-            stor->remove(req.path());
-            resp->set_success(true);
+            bool ok = eng->del(dir, key);
+            resp->set_success(ok);
         },
         [this]() { spawnDelete(); }
     );
@@ -344,7 +309,6 @@ void GrpcHandler::spawnDelete() {
 void GrpcHandler::spawnList() {
     auto* svc = service_.get();
     auto* cq = cq_.get();
-    auto stor = storage_;
     
     new TypedCallData<::kallisto::ListRequest, ::kallisto::ListResponse>(
         [svc, cq](grpc::ServerContext* ctx, ::kallisto::ListRequest* req,
@@ -352,19 +316,10 @@ void GrpcHandler::spawnList() {
                    grpc::CompletionQueue*, grpc::ServerCompletionQueue*, void* tag) {
             svc->RequestList(ctx, req, resp, cq, cq, tag);
         },
-        [stor](const ::kallisto::ListRequest& req, ::kallisto::ListResponse* resp, 
+        [](const ::kallisto::ListRequest& req, ::kallisto::ListResponse* resp, 
                grpc::Status* status) {
-            auto entries = stor->getAllEntries();
-            for (const auto& entry : entries) {
-                if (req.prefix().empty() || 
-                    entry.key.find(req.prefix()) == 0) {
-                    resp->add_paths(entry.key);
-                    if (req.limit() > 0 && 
-                        resp->paths_size() >= req.limit()) {
-                        break;
-                    }
-                }
-            }
+            // Not implemented in KallistoEngine Phase 1/2
+            *status = grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "List is not supported yet");
         },
         [this]() { spawnList(); }
     );
