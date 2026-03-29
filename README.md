@@ -374,23 +374,6 @@ make bench-server
 
 **Protocol Fairness Note**: Redis (pure in-memory) uses a tightly-optimized binary protocol (RESP). Kallisto uses HTTP/1.1 with JSON parsing — a strictly heavier stack — whilst also writing WAL redundantly to disk. The performance superiority is purely architectural (multi-core, zero-syscall SO_REUSEPORT, and lock-free RCU).
 
----
-
-## CLI Benchmark (in-process, no network overhead)
-
-```bash
-make benchmark-batch
-```
-
-```
-> MODE BATCH
-> BENCH 1000000
-Write Time: 4.48s | RPS: 223,158
-Read Time:  2.78s | RPS: 359,379
-Hits: 1,000,000/1,000,000
-```
-
-Pure in-process CuckooTable throughput: **359K reads/sec, 223K writes/sec** with zero network overhead.
 
 ---
 
