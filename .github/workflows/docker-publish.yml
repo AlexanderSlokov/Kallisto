@@ -1,0 +1,82 @@
+name: Docker Build and Publish
+
+on:
+  push:
+    branches: [ "main" ]
+    # Build on semantic release tags like v1.0.0
+    tags: [ 'v*.*.*' ]
+  # Khởi chạy thủ công từ giao diện Actions (Rất hữu ích để bạn chủ động Build)
+  workflow_dispatch:
+
+env:
+  # Registry GitHub (Miễn phí cho Public Repo)
+  REGISTRY: ghcr.io
+  # IMAGE_NAME: <github_username>/<repo_name> (e.g. AlexanderSlokov/kallisto)
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # This is used to complete the identity challenge
+      # with sigstore/fulcio when running outside of PRs.
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Convert github.repository to lowercase to fix Docker tag invalid format error
+      - name: Lowercase REGISTRY
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
+      # Setup Docker Buildx to allow cross-architecture builds if needed
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login to GHCR (GitHub Container Registry)
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata (tags, labels) for Docker
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      # Build & Push the specialized tester image (Optional, but great for CI caching)
+      - name: Build and push tester image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: tester
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
+          cache-from: type=gha,scope=tester
+          cache-to: type=gha,mode=max,scope=tester
+
+      # Build & Push the production Server Image
+      - name: Build and push Production Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # This saves massive time on huge C++ builds by caching the vcpkg/cmake steps
+          cache-from: type=gha,scope=production
+          cache-to: type=gha,mode=max,scope=production

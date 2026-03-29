@@ -1,0 +1,114 @@
+# syntax=docker/dockerfile:1
+
+# ==============================================================================
+# Phase 1: Build Image (Ubuntu 24.04)
+# ==============================================================================
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies needed for vcpkg and C++ build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    zip \
+    unzip \
+    tar \
+    pkg-config \
+    ninja-build \
+    python3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install vcpkg
+ENV VCPKG_ROOT=/usr/local/vcpkg
+RUN git clone https://github.com/microsoft/vcpkg.git $VCPKG_ROOT \
+    && $VCPKG_ROOT/bootstrap-vcpkg.sh -disableMetrics
+
+WORKDIR /app
+COPY . .
+
+# Configure and build all binaries using the custom triplet to avoid building debug
+RUN mkdir -p build && cd build \
+    && cmake -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
+             -DCMAKE_BUILD_TYPE=Release \
+             -DVCPKG_TARGET_TRIPLET=x64-linux-release \
+             -DVCPKG_HOST_TRIPLET=x64-linux-release \
+             -DVCPKG_OVERLAY_TRIPLETS=/app/custom-triplets \
+             .. \
+    && make -j$(nproc)
+
+# ==============================================================================
+# Phase 2: Test Image (Specialized image containing libraries to run tests)
+# ==============================================================================
+FROM ubuntu:24.04 AS tester
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies for running tests and benchmarks (make, bash, python, wrk, curl)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    make \
+    bash \
+    python3 \
+    python3-pip \
+    ca-certificates \
+    wrk \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install gcovr --break-system-packages
+
+# Install ghz for gRPC benchmarking
+RUN curl -sSL https://github.com/bojand/ghz/releases/download/v0.120.0/ghz-linux-x86_64.tar.gz | tar -xz -C /usr/local/bin ghz
+
+# Add non-root user for running tests securely
+RUN useradd -m -s /bin/bash kallisto
+
+WORKDIR /app
+
+# Copy the entire build context and compiled binaries from the builder
+COPY --from=builder /app /app
+
+# Change ownership to kallisto user
+RUN chown -R kallisto:kallisto /app
+USER kallisto
+
+# By default, running this stage executes unit tests
+CMD ["make", "test"]
+
+# ==============================================================================
+# Phase 3: Production Image (Ultra-small, Ubuntu compatible)
+# Note: Ubuntu 24.04 base image itself is very small (~30MB) and inherently compatible.
+# Using 'noble' (24.04) to match build environment EXACTLY.
+# ==============================================================================
+FROM ubuntu:24.04 AS production
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Add kallisto user and prepare RocksDB directories
+RUN useradd -m -s /bin/bash kallisto \
+    && mkdir -p /data/kallisto/rocksdb \
+    && chown -R kallisto:kallisto /data/kallisto
+
+# Set volume for RocksDB persistence
+VOLUME ["/data/kallisto/rocksdb"]
+
+WORKDIR /app
+
+# Copy the server executable from the builder stage
+COPY --from=builder /app/build/kallisto_server /app/kallisto_server
+COPY docker/entrypoint.sh /app/entrypoint.sh
+
+# Guarantee script is executable and owned by Kallisto
+RUN chmod +x /app/entrypoint.sh \
+    && chown kallisto:kallisto /app/kallisto_server /app/entrypoint.sh
+
+# Run as non-root user
+USER kallisto
+
+# Expose HTTP (8200) and gRPC (8201)
+EXPOSE 8200
+EXPOSE 8201
+
+ENTRYPOINT ["/app/entrypoint.sh"]
