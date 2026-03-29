@@ -477,7 +477,7 @@ Kallisto has evolved from a CLI tool to a high-performance server using an **Env
 Instead of a traditional "Acceptor Thread -> Worker Thread Pool" model (which suffers from lock contention on the accept queue), Kallisto uses the **Thread-per-Core** model:
 
 1.  **Independent Workers**: The server spawns $N$ worker threads (default: number of CPU cores).
-2.  **Shared Port**: All workers bind to the **same port** (8200 for HTTP, 8201 for gRPC) using the `SO_REUSEPORT` socket option.
+2.  **Shared Port**: All workers bind to the **same port** (8200 for HTTP API) using the `SO_REUSEPORT` socket option.
 3.  **Kernel Load Balancing**: The Linux kernel distributes incoming TCP connections across these workers based on a 4-tuple hash. This eliminates the user-space bottleneck of a single acceptor.
 
 ### 6.5.2. Unified Event Loop
@@ -485,7 +485,7 @@ Instead of a traditional "Acceptor Thread -> Worker Thread Pool" model (which su
 Each worker runs its own `epoll`-based event loop (`Dispatcher`), handling:
 
 -   **HTTP Traffic**: Direct socket manipulation, parsing HTTP/1.1 requests (Vault KV v2 format), and sending JSON responses using `simdjson`.
--   **gRPC Traffic**: Integrating gRPC's `CompletionQueue` into the event loop via a non-blocking poll timer (1ms interval). This allows a single thread to handle both REST and gRPC traffic without context switching.
+
 
 ### 6.5.3. Sharded Storage Engine
 
@@ -676,20 +676,7 @@ The user might notice a significant difference between the **Application Layer**
     -   **JSON Parsing**: Converting `{"key":"value"}` strings to C++ objects and back is CPU-intensive.
     -   *In-Memory Benchmark* calls C++ functions directly (Zero-Copy), bypassing all parsing.
 
-**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service. Using **gRPC (Protobuf)** or **HTTP/2** would likely double or triple this throughput (to ~150k-300k RPS) by using binary framing.
-
-### 8.5.2 gRPC Benchmark (Preliminary)
-
-We performed a preliminary benchmark of the **gRPC API** using a custom C++ client (`bench_grpc`).
-
-| Metric | Result | Note |
-| :--- | :--- | :--- |
-| **RPS** | ~3,587 req/s | Single-Threaded Client |
-| **Latency** | ~9-14 ms | High due to Polling Model |
-
-**Bottleneck Analysis**:
-Unlike the HTTP/1.1 Server which uses **Native Epoll** (Event-Driven) on 4 threads, the current gRPC implementation uses a **1ms Polling Timer** on a single thread to check the `CompletionQueue`. This integration strategy ("Sidecar Polling") introduces significant latency and limits throughput to the polling frequency.
-*Recommendation*: For production gRPC performance (100k+ RPS), we suggest moving to a **Thread-per-Core + dedicated CQ** model or using gRPC's `ExternalEventLoop` (if available) to remove the polling tax.
+**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service.
 
 ## 8.6. Conclusion
 

@@ -3,13 +3,11 @@
  * 
  * Envoy-style architecture:
  * - SO_REUSEPORT listeners: each Worker binds and accepts on its own socket
- * - gRPC on port 8201: async CompletionQueue per worker
  * - HTTP on port 8200: Vault KV v2 compatible API
  * - Kernel load-balances connections across workers
  */
 
 #include "kallisto/event/worker.hpp"
-#include "kallisto/server/grpc_handler.hpp"
 #include "kallisto/server/http_handler.hpp"
 #include "kallisto/server/uds_admin_handler.hpp"
 #include "kallisto/kallisto_engine.hpp"
@@ -49,7 +47,6 @@ int main(int argc, char** argv) {
     
     // Default configuration
     uint16_t http_port = 8200;
-    uint16_t grpc_port = 8201;
     size_t num_workers = std::thread::hardware_concurrency();
     if (num_workers == 0) num_workers = 4;
     
@@ -58,8 +55,6 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg.find("--http-port=") == 0) {
             http_port = static_cast<uint16_t>(std::stoi(arg.substr(12)));
-        } else if (arg.find("--grpc-port=") == 0) {
-            grpc_port = static_cast<uint16_t>(std::stoi(arg.substr(12)));
         } else if (arg.find("--workers=") == 0) {
             num_workers = std::stoul(arg.substr(10));
         } else if (arg.find("--db-path=") == 0) {
@@ -67,7 +62,6 @@ int main(int argc, char** argv) {
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: kallisto_server [options]\n"
                       << "  --http-port=PORT   HTTP port (default: 8200)\n"
-                      << "  --grpc-port=PORT   gRPC port (default: 8201)\n"
                       << "  --workers=N        Number of worker threads (default: CPU cores)\n"
                       << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
                       << std::endl;
@@ -78,7 +72,6 @@ int main(int argc, char** argv) {
     info("========================================");
     info("  Kallisto Secret Server v0.1.0");
     info("  HTTP port:  " + std::to_string(http_port));
-    info("  gRPC port:  " + std::to_string(grpc_port));
     info("  Workers:    " + std::to_string(num_workers));
     info("========================================");
     
@@ -101,7 +94,6 @@ int main(int argc, char** argv) {
     
     // Store handlers to prevent premature destruction
     std::vector<std::shared_ptr<server::HttpHandler>> http_handlers;
-    std::vector<std::shared_ptr<server::GrpcHandler>> grpc_handlers;
     
     // Start workers
     pool->start([&]() {
@@ -117,12 +109,6 @@ int main(int argc, char** argv) {
                 http_handler->onNewConnection(fd);
             });
             http_handlers.push_back(http_handler);
-            
-            // Each worker binds gRPC port (SO_REUSEPORT)
-            auto grpc_handler = std::make_shared<server::GrpcHandler>(
-                worker.dispatcher(), engine);
-            grpc_handler->initialize(grpc_port);
-            grpc_handlers.push_back(grpc_handler);
         }
         
         info("[SERVER] All listeners bound successfully");
@@ -143,11 +129,6 @@ int main(int argc, char** argv) {
     // Graceful shutdown
     info("[SERVER] Initiating graceful shutdown...");
     
-    // Shutdown gRPC handlers first (they have their own timers)
-    for (auto& handler : grpc_handlers) {
-        handler->shutdown();
-    }
-    grpc_handlers.clear();
     http_handlers.clear();
     
     // Stop worker pool (stops dispatchers, joins threads)

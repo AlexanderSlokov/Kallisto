@@ -21,7 +21,7 @@ all: build
 help:
 	@echo "Kallisto Commands:"
 	@echo "  make build          - Build core (CLI only)"
-	@echo "  make build-server   - Build with gRPC/HTTP + RocksDB (requires vcpkg)"
+	@echo "  make build-server   - Build with HTTP + RocksDB (requires vcpkg)"
 	@echo "  make test           - Run all Unit Tests (via CTest)"
 	@echo "  make clean          - Deep clean (Fixes Generator mismatch)"
 	@echo ""
@@ -112,16 +112,12 @@ benchmark-multithread: build
 	@./$(BUILD_DIR)/bench_multithread
 
 # ===========================================================================
-# Benchmarks (Server - HTTP/gRPC)
+# Benchmarks (Server - HTTP)
 # ===========================================================================
-bench-ghz:
-	@chmod +x bench/run_ghz.sh && ./bench/run_ghz.sh
-
 bench-server:
 	@bash bench/run_server_bench.sh
 
 bench-http: bench-server
-bench-grpc: bench-ghz
 
 # ===========================================================================
 # Docker Integration
@@ -134,7 +130,7 @@ docker-test:
 	@docker run --rm kallisto-tester:latest make test
 
 docker-run:
-	@docker run -d --name kallisto -p 8200:8200 -p 8201:8201 \
+	@docker run -d --name kallisto -p 8200:8200 \
 	  -v my-kallisto-data:/data/kallisto/rocksdb kallisto-server:latest
 
 # ===========================================================================

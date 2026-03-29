@@ -88,7 +88,7 @@ add_test(NAME KallistoEngineTest COMMAND test_kallisto_engine)
 
 # Kallisto UDS Admin tests
 add_executable(test_uds_admin tests/test_uds_admin.cpp)
-target_link_libraries(test_uds_admin PRIVATE kallisto_server_lib kallisto_lib kallisto_proto_lib GTest::gtest GTest::gtest_main pthread)
+target_link_libraries(test_uds_admin PRIVATE kallisto_server_lib kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME UdsAdminTest COMMAND test_uds_admin)
 
 add_executable(test_btree_rcu tests/test_btree_rcu.cpp)
@@ -115,71 +115,33 @@ add_executable(bench_multithread tests/bench_multithread.cpp)
 target_link_libraries(bench_multithread kallisto_lib)
 
 # ===========================================================================
-# Phase 2: Envoy-Style Server (gRPC + HTTP + SO_REUSEPORT)
+# Phase 2: Envoy-Style Server (HTTP + SO_REUSEPORT)
 # ===========================================================================
-find_package(Protobuf CONFIG)
-find_package(gRPC CONFIG)
 find_package(simdjson CONFIG)
 
-if(Protobuf_FOUND AND gRPC_FOUND)
-    message(STATUS "gRPC and Protobuf found - building server components")
+# Server library
+add_library(kallisto_server_lib
+    src/net/listener.cpp
+    src/server/http_handler.cpp
+    src/server/uds_admin_handler.cpp
+)
+target_link_libraries(kallisto_server_lib PUBLIC kallisto_lib)
 
-    # Proto Generation
-    set(PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/proto")
-    set(GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-    file(MAKE_DIRECTORY ${GEN_DIR})
-
-    find_program(PROTOC_EXECUTABLE protoc)
-    find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
-
-    add_custom_command(
-        OUTPUT "${GEN_DIR}/kallisto.pb.cc" "${GEN_DIR}/kallisto.pb.h"
-            "${GEN_DIR}/kallisto.grpc.pb.cc" "${GEN_DIR}/kallisto.grpc.pb.h"
-        COMMAND ${PROTOC_EXECUTABLE}
-            --proto_path=${PROTO_DIR}
-            --cpp_out=${GEN_DIR}
-            --grpc_out=${GEN_DIR}
-            --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN}
-            ${PROTO_DIR}/kallisto.proto
-        DEPENDS ${PROTO_DIR}/kallisto.proto
-        COMMENT "Generating gRPC/Protobuf sources from kallisto.proto"
-    )
-
-   # Proto library
-   add_library(kallisto_proto_lib STATIC
-       "${GEN_DIR}/kallisto.pb.cc"
-       "${GEN_DIR}/kallisto.grpc.pb.cc"
-   )
-   target_include_directories(kallisto_proto_lib PUBLIC ${GEN_DIR})
-   target_link_libraries(kallisto_proto_lib PUBLIC protobuf::libprotobuf gRPC::grpc++)
-
-   # Server library
-   add_library(kallisto_server_lib
-       src/net/listener.cpp
-       src/server/grpc_handler.cpp
-       src/server/http_handler.cpp
-       src/server/uds_admin_handler.cpp
-   )
-   target_link_libraries(kallisto_server_lib PUBLIC kallisto_lib kallisto_proto_lib gRPC::grpc++_reflection)
-
-   if(ENABLE_COVERAGE)
-       target_compile_options(kallisto_server_lib PUBLIC --coverage -O0 -g)
-       target_link_options(kallisto_server_lib PUBLIC --coverage)
-   endif()
-
-   if(simdjson_FOUND)
-       target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)
-       target_compile_definitions(kallisto_server_lib PUBLIC KALLISTO_HAS_SIMDJSON=1)
-   endif()
-
-   # Server executable
-   add_executable(kallisto_server src/kallisto_server.cpp)
-   target_link_libraries(kallisto_server kallisto_server_lib)
-   # Server tests link
-   target_link_libraries(test_listener kallisto_server_lib)
-else()
-   message(STATUS "gRPC/Protobuf not found - skipping server components")
+if(ENABLE_COVERAGE)
+    target_compile_options(kallisto_server_lib PUBLIC --coverage -O0 -g)
+    target_link_options(kallisto_server_lib PUBLIC --coverage)
 endif()
+
+if(simdjson_FOUND)
+    target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)
+    target_compile_definitions(kallisto_server_lib PUBLIC KALLISTO_HAS_SIMDJSON=1)
+endif()
+
+# Server executable
+add_executable(kallisto_server src/kallisto_server.cpp)
+target_link_libraries(kallisto_server kallisto_server_lib)
+# Server tests link
+target_link_libraries(test_listener kallisto_server_lib)
 
 # ===========================================================================
 # Optional: Future Upgrades
