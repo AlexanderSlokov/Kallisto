@@ -1,6 +1,4 @@
 #include "kallisto/server/http_handler.hpp"
-#include "kallisto/logger.hpp"
-
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -43,7 +41,9 @@ void HttpHandler::onNewConnection(int client_fd) {
     // Register with epoll for reading
     dispatcher_.addFd(client_fd, EPOLLIN | EPOLLET, [this, client_fd](uint32_t events) {
         // Guard: connection may have been closed by a prior event in this batch
-        if (connections_.find(client_fd) == connections_.end()) return;
+        if (connections_.find(client_fd) == connections_.end()) { 
+			return;
+		}
         
         if (events & (EPOLLERR | EPOLLHUP)) {
             closeConnection(client_fd);
@@ -52,7 +52,9 @@ void HttpHandler::onNewConnection(int client_fd) {
         if (events & EPOLLIN) {
             onReadable(client_fd);
             // Check again — onReadable may have closed the connection
-            if (connections_.find(client_fd) == connections_.end()) return;
+            if (connections_.find(client_fd) == connections_.end()) { 
+				return;
+			}
         }
         if (events & EPOLLOUT) {
             onWritable(client_fd);
@@ -62,7 +64,9 @@ void HttpHandler::onNewConnection(int client_fd) {
 
 void HttpHandler::closeConnection(int fd) {
     auto it = connections_.find(fd);
-    if (it == connections_.end()) return;  // Already closed
+    if (it == connections_.end()) { 
+		return;
+	}
     
     dispatcher_.removeFd(fd);
     close(fd);
@@ -75,7 +79,9 @@ void HttpHandler::closeConnection(int fd) {
 
 void HttpHandler::onReadable(int fd) {
     auto it = connections_.find(fd);
-    if (it == connections_.end()) return;
+    if (it == connections_.end()) { 
+		return;
+	}
     
     auto& conn = *it->second;
     
@@ -90,30 +96,30 @@ void HttpHandler::onReadable(int fd) {
             closeConnection(fd);
             return;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) { 
+				break;
+			}
             closeConnection(fd);
             return;
         }
     }
     
-    // Try to parse a complete HTTP request
     auto req = parseRequest(conn.read_buffer);
     if (req.valid) {
         handleRequest(conn, req);
-        
-        // handleRequest → sendResponse → closeConnection may have
-        // destroyed conn (keep_alive=false). Check before accessing.
-        if (connections_.find(fd) == connections_.end()) return;
-        
-        // Clear the consumed request from buffer
+        // closeConnection may have destroyed conn (keep_alive=false). Check before accessing.
+        if (connections_.find(fd) == connections_.end()) {
+			return;
+		}
         connections_[fd]->read_buffer.clear();
     }
-    // else: incomplete request, wait for more data
 }
 
 void HttpHandler::onWritable(int fd) {
     auto it = connections_.find(fd);
-    if (it == connections_.end()) return;
+    if (it == connections_.end()) {
+		return;
+	}
     
     auto& conn = *it->second;
     
@@ -185,7 +191,9 @@ HttpHandler::HttpRequest HttpHandler::parseRequest(const std::string& buffer) {
         }
         
         auto colon = line.find(':');
-        if (colon == std::string::npos) continue;
+        if (colon == std::string::npos) { 
+			continue;
+		}
         
         std::string name = line.substr(0, colon);
         std::string value = line.substr(colon + 1);
@@ -333,7 +341,9 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
         }
     }
     
-    if (value.empty()) value = body;
+    if (value.empty()) { 
+		value = body;
+	}
     
     std::string dir = "";
     std::string key = path;
@@ -353,7 +363,9 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
 }
 
 void HttpHandler::handleDeleteSecret(Connection& conn, const std::string& path) {
-    if (!engine_) return;
+    if (!engine_) { 
+		return;
+	}
     
     std::string dir = "";
     std::string key = path;
