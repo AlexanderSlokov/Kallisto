@@ -77,9 +77,13 @@ add_executable(test_threading tests/test_threading.cpp)
 target_link_libraries(test_threading kallisto_lib)
 add_test(NAME ThreadingTest COMMAND test_threading)
 
-add_executable(test_listener tests/test_listener.cpp)
+add_executable(test_listener src/net/test_listener.cpp)
 # (Target link libraries for test_listener are in Phase 2 below)
 add_test(NAME ListenerTest COMMAND test_listener)
+
+add_executable(test_thread_local src/thread_local/test_thread_local.cpp)
+target_link_libraries(test_thread_local PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME ThreadLocalTest COMMAND test_thread_local)
 
 # Modern GTest Suites
 add_executable(test_kallisto_engine tests/test_kallisto_engine.cpp)
