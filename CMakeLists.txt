@@ -110,6 +110,15 @@ add_executable(test_sharded_cuckoo src/test_sharded_cuckoo_table.cpp)
 target_link_libraries(test_sharded_cuckoo PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME ShardedCuckooTest COMMAND test_sharded_cuckoo)
 
+add_executable(test_siphash src/test_siphash.cpp)
+target_link_libraries(test_siphash PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME SipHashTest COMMAND test_siphash)
+
+add_executable(test_kallisto_server src/test_kallisto_server.cpp)
+# Note: we link against kallisto_server_lib so the HttpHandler/UdsAdmin implementations are met
+target_link_libraries(test_kallisto_server PRIVATE kallisto_server_lib kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME KallistoServerTest COMMAND test_kallisto_server)
+
 # ===========================================================================
 # Benchmark Tools & Utils
 # ===========================================================================

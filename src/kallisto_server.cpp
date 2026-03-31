@@ -30,120 +30,175 @@ namespace {
         kallisto::info("[SERVER] Received signal " + std::to_string(signum) + ", shutting down...");
         shutdown_requested.store(true);
     }
-}
+} // namespace
 
-// Factory from worker_impl.cpp
 namespace kallisto {
-    event::WorkerPoolPtr createWorkerPool(size_t num_workers);
-}
 
+event::WorkerPoolPtr createWorkerPool(size_t num_workers);
+
+// -----------------------------------------------------------------------------
+// ServerConfig
+// Extracts CLI arguments into strongly typed configurations.
+// -----------------------------------------------------------------------------
+struct ServerConfig {
+    uint16_t http_port = 8200;
+    size_t num_workers = 4;
+    std::string db_path = "/data/kallisto/rocksdb";
+
+    static ServerConfig parseFromArgs(int argc, char** argv) {
+        ServerConfig config;
+        
+        // Auto-detect cores
+        config.num_workers = std::thread::hardware_concurrency();
+        if (config.num_workers == 0) { 
+			config.num_workers = 4;
+		}
+
+        for (int i = 1; i < argc; i++) {
+            std::string arg = argv[i];
+            if (arg.find("--http-port=") == 0) {
+                config.http_port = static_cast<uint16_t>(std::stoi(arg.substr(12)));
+            } else if (arg.find("--workers=") == 0) {
+                config.num_workers = std::stoul(arg.substr(10));
+            } else if (arg.find("--db-path=") == 0) {
+                config.db_path = arg.substr(10);
+            }
+        }
+        return config;
+    }
+
+    bool isHelpRequested(int argc, char** argv) const {
+        for (int i = 1; i < argc; i++) {
+            std::string arg = argv[i];
+            if (arg == "--help" || arg == "-h") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void printHelpInstructions() const {
+        std::cout << "Usage: kallisto_server [options]\n"
+                  << "  --http-port=PORT   HTTP port (default: 8200)\n"
+                  << "  --workers=N        Number of worker threads (default: CPU cores)\n"
+                  << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
+                  << std::endl;
+    }
+
+    void printBanner() const {
+        info("========================================");
+        info("  Kallisto Secret Server v0.1.0");
+        info("  HTTP port:  " + std::to_string(http_port));
+        info("  Workers:    " + std::to_string(num_workers));
+        info("  DB Path:    " + db_path);
+        info("========================================");
+    }
+};
+
+// -----------------------------------------------------------------------------
+// KallistoServerApp
+// Orchestrates the lifecycle of the actual Vault clone service.
+// -----------------------------------------------------------------------------
+class KallistoServerApp {
+public:
+    explicit KallistoServerApp(const ServerConfig& config) : config_(config) {
+        core_ = std::make_shared<KallistoCore>(config_.db_path);
+        info("[SERVER] KallistoCore created and initialized with DB path: " + config_.db_path);
+        
+        worker_pool_ = createWorkerPool(config_.num_workers);
+        uds_admin_ = std::make_unique<server::UdsAdminHandler>(core_);
+    }
+
+    void start() {
+        // Start workers and bind to HTTP endpoints
+        worker_pool_->start([this]() { bindHttpListeners(); });
+        
+        // Start Admin UDS interface
+        uds_admin_->start();
+        
+        info("[SERVER] Kallisto is READY. Accepting connections.");
+        info("[SERVER] Press Ctrl+C to shutdown.");
+    }
+
+    void waitForShutdown() {
+        // Main loop: sleep until an OS signal flips the boolean
+        while (!shutdown_requested.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
+    void shutdown() {
+        info("[SERVER] Initiating graceful shutdown...");
+        
+        http_handlers_.clear(); // Allow handlers to destruct gracefully
+        worker_pool_->stop();   // Joins threads
+        uds_admin_->stop();     // Stops accept loops
+
+        // Important: Guarantee atomic durability on crash/shutdown
+        core_->force_flush();
+        info("[SERVER] KallistoCore flushed.");
+        info("[SERVER] Shutdown complete.");
+    }
+
+private:
+    void bindHttpListeners() {
+        info("[SERVER] All workers ready, binding listeners...");
+        uint16_t port = config_.http_port;
+        
+        for (size_t i = 0; i < worker_pool_->size(); ++i) {
+            auto& worker = worker_pool_->getWorker(i);
+            
+            auto http_handler = std::make_shared<server::HttpHandler>(worker.dispatcher(), core_);
+            worker.bindListener(port, [http_handler](int fd) {
+                http_handler->onNewConnection(fd);
+            });
+            http_handlers_.push_back(http_handler);
+        }
+        info("[SERVER] All listeners bound successfully");
+    }
+
+    ServerConfig config_;
+    std::shared_ptr<KallistoCore> core_;
+    event::WorkerPoolPtr worker_pool_;
+    std::unique_ptr<server::UdsAdminHandler> uds_admin_;
+    std::vector<std::shared_ptr<server::HttpHandler>> http_handlers_;
+};
+
+} // namespace kallisto
+
+// -----------------------------------------------------------------------------
+// MAIN ENTRY POINT
+// Extracted outside test mode to prevent multiple definitions of main.
+// -----------------------------------------------------------------------------
+#ifndef KALLISTO_TEST_MODE
 int main(int argc, char** argv) {
     using namespace kallisto;
     
-    // Ignore SIGPIPE — clients may disconnect during send()
-    signal(SIGPIPE, SIG_IGN);
+    // Ignore SIGPIPE — clients may disconnect abruptly during send()
+    std::signal(SIGPIPE, SIG_IGN);
     
-    // Default to WARN to avoid stdout bottleneck in benchmarks
-    Logger::getInstance().setLevel(LogLevel::WARN);
-    
-    // Default configuration
-    uint16_t http_port = 8200;
-    size_t num_workers = std::thread::hardware_concurrency();
-    if (num_workers == 0) {
-        num_workers = 4;
-    }
-    
-    // Parse CLI args
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg.find("--http-port=") == 0) {
-            http_port = static_cast<uint16_t>(std::stoi(arg.substr(12)));
-        } else if (arg.find("--workers=") == 0) {
-            num_workers = std::stoul(arg.substr(10));
-        } else if (arg.find("--db-path=") == 0) {
-            // Custom RocksDB path
-        } else if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: kallisto_server [options]\n"
-                      << "  --http-port=PORT   HTTP port (default: 8200)\n"
-                      << "  --workers=N        Number of worker threads (default: CPU cores)\n"
-                      << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
-                      << std::endl;
-            return 0;
-        }
-    }
-    
-    info("========================================");
-    info("  Kallisto Secret Server v0.1.0");
-    info("  HTTP port:  " + std::to_string(http_port));
-    info("  Workers:    " + std::to_string(num_workers));
-    info("========================================");
-    
-    // Setup signal handlers (graceful shutdown)
+    // Setup signal handlers for graceful shutdown
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
     
-    std::string db_path = "/data/kallisto/rocksdb";
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg.find("--db-path=") == 0) {
-            db_path = arg.substr(10);
-        }
+    // Default log level to WARN for performance benchmarking constraints
+    Logger::getInstance().setLevel(LogLevel::WARN);
+    
+    ServerConfig config = ServerConfig::parseFromArgs(argc, argv);
+    
+    if (config.isHelpRequested(argc, argv)) {
+        config.printHelpInstructions();
+        return 0;
     }
     
-    auto pool = createWorkerPool(num_workers);
-    
-    auto core = std::make_shared<KallistoCore>(db_path);
-    info("[SERVER] KallistoCore created and initialized with DB path: " + db_path);
-    
-    // Store handlers to prevent premature destruction
-    std::vector<std::shared_ptr<server::HttpHandler>> http_handlers;
-    
-    // Start workers
-    pool->start([&]() {
-        info("[SERVER] All workers ready, binding listeners...");
-        
-        for (size_t i = 0; i < pool->size(); ++i) {
-            auto& worker = pool->getWorker(i);
-            
-            // Each worker binds HTTP port (SO_REUSEPORT)
-            auto http_handler = std::make_shared<server::HttpHandler>(
-                worker.dispatcher(), core);
-            worker.bindListener(http_port, [http_handler](int fd) {
-                http_handler->onNewConnection(fd);
-            });
-            http_handlers.push_back(http_handler);
-        }
-        
-        info("[SERVER] All listeners bound successfully");
-    });
-    
-    // Start Unix Domain Socket Admin Handler
-    auto uds_admin = std::make_unique<server::UdsAdminHandler>(core);
-    uds_admin->start();
-    
-    info("[SERVER] Kallisto is READY. Accepting connections.");
-    info("[SERVER] Press Ctrl+C to shutdown.");
-    
-    // Main loop: wait for shutdown signal
-    while (!shutdown_requested.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-    
-    // Graceful shutdown
-    info("[SERVER] Initiating graceful shutdown...");
-    
-    http_handlers.clear();
-    
-    // Stop worker pool (stops dispatchers, joins threads)
-    pool->stop();
-    
-    // Stop UDS admin
-    uds_admin->stop();
-    
-    // Flush Engine on shutdown
-    core->force_flush();
-    info("[SERVER] KallistoCore flushed.");
-    
-    info("[SERVER] Shutdown complete.");
+    config.printBanner();
+
+    // Launch!
+    KallistoServerApp app(config);
+    app.start();
+    app.waitForShutdown();
+    app.shutdown();
+
     return 0;
 }
+#endif

@@ -138,6 +138,7 @@ docker-run:
 # ===========================================================================
 clean:
 	@rm -rf $(BUILD_DIR)
+	@sudo rm -rf $(DB_PATH)
 	@echo "Build directory cleared."
 
 logs:
