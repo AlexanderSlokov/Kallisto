@@ -370,7 +370,7 @@ make test-persistence      # Correctness: CRUD + crash recovery
 │       └─────────────┼─────────────┘    (SO_REUSEPORT)       │
 │                     ▼                                       │
 │          ┌──────────────────────┐                           │
-│          │    KallistoEngine    │                           │
+│          │     KallistoCore     │                           │
 │          │   (The One True Core)│                           │
 │          └──────────┬───────────┘                           │
 │                     │ Validation                            │
@@ -383,5 +383,5 @@ make test-persistence      # Correctness: CRUD + crash recovery
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly. Protocol-agnostic network handlers simply delegate all actions to the thread-safe `KallistoEngine`.
+Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly. Protocol-agnostic network handlers simply delegate all actions to the thread-safe `KallistoCore`.
 The inner layers (B-Tree, CuckooTable, RocksDB) are strictly encapsulated. Hit data is instantly fetched from the concurrent `ShardedCuckooTable` (64 shards lock-free lookup), while persisting writes crash-safely to `RocksDBStorage` (WAL). Administrative commands (like changing persistence modes or forcing flushes) are routed entirely out-of-band via an OS-level Unix Domain Socket.

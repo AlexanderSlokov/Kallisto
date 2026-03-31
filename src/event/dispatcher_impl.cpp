@@ -1,93 +1,112 @@
 #include "kallisto/event/dispatcher.hpp"
 #include "kallisto/logger.hpp"
 
+#include <atomic>
+#include <cstring>
+#include <fcntl.h>
+#include <mutex>
+#include <queue>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <cstring>
 #include <thread>
-#include <mutex>
-#include <vector>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
-#include <queue>
-#include <atomic>
+#include <vector>
 
 namespace kallisto {
 namespace event {
 
 namespace {
-    constexpr int MAX_EVENTS = 64;
-    constexpr int EPOLL_TIMEOUT_MS = 100;  // Wake up periodically to check exit flag
+constexpr int max_events = 64;
+constexpr int epoll_timeout_ms = 100; // periodically check exit flag
 }
 
 /**
  * Timer implementation using timerfd.
+ * This class translates time durations into Linux timerfd constructs.
+ * It is fully isolated from Dispatcher/epoll structures.
  */
 class TimerImpl : public Timer {
 public:
-    TimerImpl(int epoll_fd, std::function<void()> cb)
-        : epoll_fd_(epoll_fd), callback_(std::move(cb)), enabled_(false) {
-        // Create timerfd
-        timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-        if (timer_fd_ < 0) {
-            error("[TIMER] Failed to create timerfd: " + std::string(strerror(errno)));
-            return;
-        }
-    }
-
-    ~TimerImpl() override {
-        if (timer_fd_ >= 0) {
-            // Remove from epoll before closing
-            epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, timer_fd_, nullptr);
-            close(timer_fd_);
-        }
-    }
-
-    void enableTimer(uint64_t duration_ms) override {
-        struct itimerspec its{};
-        its.it_value.tv_sec = duration_ms / 1000;
-        its.it_value.tv_nsec = (duration_ms % 1000) * 1000000;
-        its.it_interval.tv_sec = 0;  // One-shot
-        its.it_interval.tv_nsec = 0;
-
-        if (timerfd_settime(timer_fd_, 0, &its, nullptr) < 0) {
-            error("[TIMER] Failed to set timer: " + std::string(strerror(errno)));
-            return;
-        }
-
-        enabled_ = true;
-    }
-
-    void disableTimer() override {
-        struct itimerspec its{};  // Zero = disable
-        timerfd_settime(timer_fd_, 0, &its, nullptr);
-        enabled_ = false;
-    }
-
-    bool enabled() const override {
-        return enabled_;
-    }
-
-    int fd() const { return timer_fd_; }
+  explicit TimerImpl(std::function<void()> cb, std::function<void(int)> on_destroy)
+    : callback_(std::move(cb)), on_destroy_(std::move(on_destroy)), enabled_(false) {
     
-    void fire() {
-        // Read the timerfd to clear the event
-        uint64_t expirations;
-        [[maybe_unused]] ssize_t s = read(timer_fd_, &expirations, sizeof(expirations));
-        enabled_ = false;
-        if (callback_) {
-            callback_();
-        }
+    timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (timer_fd_ < 0) {
+      error("[TIMER] Failed to create timerfd: " + std::string(strerror(errno)));
+      throw std::runtime_error("timerfd_create failed: " + std::string(strerror(errno)));
     }
+  }
+
+  ~TimerImpl() override {
+    if (timer_fd_ >= 0) {
+      // Notify parent dispatcher to clean up tracking resources (callbacks, maps, etc.)
+      if (on_destroy_) {
+        on_destroy_(timer_fd_);
+      }
+      // Rely on Linux OS behavior: closing an FD automatically removes it from all epoll sets.
+      close(timer_fd_);
+    }
+  }
+
+  void enableTimer(uint64_t duration_ms) override {
+    struct itimerspec its = msToItimerSpec(duration_ms);
+
+    if (timerfd_settime(timer_fd_, 0, &its, nullptr) < 0) {
+      error("[TIMER] Failed to set timer: " + std::string(strerror(errno)));
+      return;
+    }
+
+    enabled_ = true;
+  }
+
+  void disableTimer() override {
+    struct itimerspec its{}; // Initializing to zero disables the timer
+    timerfd_settime(timer_fd_, 0, &its, nullptr);
+    enabled_ = false;
+  }
+
+  bool enabled() const override { return enabled_; }
+
+  int fd() const { return timer_fd_; }
+
+  void fire() {
+    clearTimerEvent();
+    enabled_ = false;
+    invokeCallback();
+  }
 
 private:
-    int epoll_fd_;
-    int timer_fd_{-1};
-    std::function<void()> callback_;
-    std::atomic<bool> enabled_;
+  static constexpr uint64_t ms_in_sec = 1000;
+  static constexpr uint64_t ns_in_ms = 1000000;
+
+  struct itimerspec msToItimerSpec(uint64_t duration_ms) const {
+    struct itimerspec its{};
+    its.it_value.tv_sec = duration_ms / ms_in_sec;
+    its.it_value.tv_nsec = (duration_ms % ms_in_sec) * ns_in_ms;
+    its.it_interval.tv_sec = 0; // One-shot behavior
+    its.it_interval.tv_nsec = 0;
+    return its;
+  }
+
+  void clearTimerEvent() const {
+    uint64_t expirations;
+    // Reading from a timerfd resets it and clears the event inside epoll.
+    [[maybe_unused]] ssize_t s = read(timer_fd_, &expirations, sizeof(expirations));
+  }
+
+  void invokeCallback() const {
+    if (callback_) {
+      callback_();
+    }
+  }
+
+  int timer_fd_{-1};
+  std::function<void()> callback_;
+  std::function<void(int)> on_destroy_;
+  std::atomic<bool> enabled_;
 };
 
 /**
@@ -95,271 +114,294 @@ private:
  */
 class DispatcherImpl : public Dispatcher {
 public:
-    explicit DispatcherImpl(const std::string& name)
-        : name_(name), running_(false), exit_requested_(false) {
-        
-        // Create epoll instance
-        epoll_fd_ = epoll_create1(EPOLL_CLOEXEC);
-        if (epoll_fd_ < 0) {
-            error("[DISPATCHER] Failed to create epoll: " + std::string(strerror(errno)));
-            return;
-        }
+  explicit DispatcherImpl(const std::string& name)
+    : name_(name), running_(false), exit_requested_(false) {
+    
+    epoll_fd_ = createEpollInstance();
+    wakeup_fd_ = createWakeupEventFd();
+    registerWakeupFd(epoll_fd_, wakeup_fd_);
+    
+    debug("[DISPATCHER] Created dispatcher '" + name_ + "'");
+  }
 
-        // Create eventfd for cross-thread wakeup (used by post())
-        wakeup_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-        if (wakeup_fd_ < 0) {
-            error("[DISPATCHER] Failed to create eventfd: " + std::string(strerror(errno)));
-            close(epoll_fd_);
-            return;
-        }
+  ~DispatcherImpl() override {
+    if (wakeup_fd_ >= 0) {
+      close(wakeup_fd_);
+    }
+    if (epoll_fd_ >= 0) {
+      close(epoll_fd_);
+    }
+  }
 
-        // Add wakeup_fd to epoll
-        struct epoll_event ev{};
-        ev.events = EPOLLIN;
-        ev.data.fd = wakeup_fd_;
-        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wakeup_fd_, &ev) < 0) {
-            error("[DISPATCHER] Failed to add wakeup fd to epoll");
-        }
+  void run() override {
+    run_thread_id_ = std::this_thread::get_id();
+    running_ = true;
+    exit_requested_ = false;
 
-        // Record the thread ID after run() starts
-        debug("[DISPATCHER] Created dispatcher '" + name_ + "'");
+    debug("[DISPATCHER] '" + name_ + "' entering event loop");
+
+    while (!exit_requested_) {
+      processImmediateTasks();
+      waitForAndDispatchEvents();
+      applyDeferredMutations();
     }
 
-    ~DispatcherImpl() override {
-        if (wakeup_fd_ >= 0) close(wakeup_fd_);
-        if (epoll_fd_ >= 0) close(epoll_fd_);
+    running_ = false;
+    debug("[DISPATCHER] '" + name_ + "' exited event loop");
+  }
+
+  void exit() override {
+    exit_requested_ = true;
+    triggerWakeup(); 
+  }
+
+  void post(PostCb callback) override {
+    {
+      std::lock_guard<std::mutex> lock(post_mutex_);
+      post_queue_.push(std::move(callback));
     }
 
-    void run() override {
-        run_thread_id_ = std::this_thread::get_id();
-        running_ = true;
-        exit_requested_ = false;
+    // Edge Case(Wait-Sleep Anomaly):
+    // Only pay the cost of a syscall 'write' if the event loop is actually sleeping. If the loop is actively processing, it will naturally pick up the newly posted task.
+    if (is_sleeping_.load(std::memory_order_acquire)) {
+      triggerWakeup();
+    }
+  }
 
-        debug("[DISPATCHER] '" + name_ + "' entering event loop");
+  TimerPtr createTimer(std::function<void()> cb) override {
+    // Inject a cleanup hook so we do not leak Timer callbacks inside fd_callbacks_ when a timer is destructed.
+    auto timer = std::make_unique<TimerImpl>(std::move(cb), [this](int fd) {
+      this->removeFd(fd);
+    });
 
-        struct epoll_event events[MAX_EVENTS];
+    int fd = timer->fd();
+    
+    // Unify handling: timers are treated exactly like regular sockets.
+    addFd(fd, EPOLLIN, [t = timer.get()](uint32_t) {
+      t->fire();
+    });
 
-        while (!exit_requested_) {
-            // 1. HOT PATH: Process tasks immediately (simulates memory bus)
-            runPostedCallbacks();
+    return timer;
+  }
 
-            // 2. Prepare to sleep
-            is_sleeping_.store(true, std::memory_order_release);
+  void addFd(int fd, uint32_t events, FdCb cb) override {
+    struct epoll_event ev{};
+    ev.events = events;
+    ev.data.fd = fd;
 
-            // 3. Double-check queue to avoid race condition
-            // (Task might have arrived after runPostedCallbacks but before is_sleeping_=true)
-            bool have_tasks = false;
-            {
-                std::lock_guard<std::mutex> lock(post_mutex_);
-                have_tasks = !post_queue_.empty();
-            }
-
-            if (have_tasks) {
-                // Abort sleep, process tasks immediately
-                is_sleeping_.store(false, std::memory_order_release);
-                continue;
-            }
-
-            // 4. SLOW PATH: Wait for events
-            int nfds = epoll_wait(epoll_fd_, events, MAX_EVENTS, EPOLL_TIMEOUT_MS);
-            
-            // 5. Woke up
-            is_sleeping_.store(false, std::memory_order_release);
-            
-            if (nfds < 0) {
-                if (errno == EINTR) continue;  // Interrupted by signal
-                error("[DISPATCHER] epoll_wait error: " + std::string(strerror(errno)));
-                break;
-            }
-
-            // === BEGIN EVENT PROCESSING (no map mutations allowed) ===
-            is_iterating_ = true;
-
-            // Process events
-            for (int i = 0; i < nfds; ++i) {
-                int fd = events[i].data.fd;
-                uint32_t event_mask = events[i].events;
-
-                // Skip fds that were removed by a callback earlier in this batch
-                if (removed_this_batch_.count(fd)) continue;
-
-                if (fd == wakeup_fd_) {
-                    // Wakeup event - drain the eventfd
-                    drainWakeup();
-                    // runPostedCallbacks() will be called at top of loop
-                } else if (auto it = timers_.find(fd); it != timers_.end()) {
-                    // Timer event
-                    it->second->fire();
-                } else if (auto it = fd_callbacks_.find(fd); it != fd_callbacks_.end()) {
-                    // File descriptor event
-                    it->second(event_mask);
-                }
-            }
-
-            is_iterating_ = false;
-            // === END EVENT PROCESSING ===
-
-            // Flush deferred removals (erase callbacks from map)
-            for (int fd : pending_removals_) {
-                fd_callbacks_.erase(fd);
-            }
-            pending_removals_.clear();
-            removed_this_batch_.clear();
-
-            // Flush deferred adds (move callbacks into map)
-            for (auto& [fd, cb] : pending_adds_) {
-                fd_callbacks_[fd] = std::move(cb);
-            }
-            pending_adds_.clear();
-        }
-
-        running_ = false;
-        debug("[DISPATCHER] '" + name_ + "' exited event loop");
+    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
+      error("[DISPATCHER] Failed to add fd " + std::to_string(fd) + ": " + strerror(errno));
+      return;
     }
 
-    void exit() override {
-        exit_requested_ = true;
-        wakeup();  // Wake up epoll_wait if it's blocking
+    if (is_iterating_) {
+      pending_adds_.emplace_back(fd, std::move(cb));
+    } else {
+      fd_callbacks_[fd] = std::move(cb);
     }
+  }
 
-    void post(PostCb callback) override {
-        {
-            std::lock_guard<std::mutex> lock(post_mutex_);
-            post_queue_.push(std::move(callback));
-        }
-        
-        // Hybrid Polling Optimization:
-        // Only call syscall if Worker is actually sleeping.
-        // If Worker is awake, it will check the queue in its loop.
-        if (is_sleeping_.load(std::memory_order_acquire)) {
-            wakeup();
-        }
-    }
+  void modifyFd(int fd, uint32_t events) override {
+    struct epoll_event ev{};
+    ev.events = events;
+    ev.data.fd = fd;
 
-    TimerPtr createTimer(std::function<void()> cb) override {
-        auto timer = std::make_unique<TimerImpl>(epoll_fd_, std::move(cb));
-        
-        // Add timer fd to epoll
-        struct epoll_event ev{};
-        ev.events = EPOLLIN;
-        ev.data.fd = timer->fd();
-        epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, timer->fd(), &ev);
-        
-        // Track timer for callback dispatch
-        timers_[timer->fd()] = timer.get();
-        
-        return timer;
+    if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev) < 0) {
+      error("[DISPATCHER] Failed to modify fd " + std::to_string(fd) + ": " + strerror(errno));
     }
+  }
 
-    void addFd(int fd, uint32_t events, FdCb cb) override {
-        // Always register with epoll immediately (so events arrive next cycle)
-        struct epoll_event ev{};
-        ev.events = events;
-        ev.data.fd = fd;
-        
-        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
-            error("[DISPATCHER] Failed to add fd " + std::to_string(fd) + ": " + strerror(errno));
-            return;
-        }
-        
-        if (is_iterating_) {
-            // Defer the map mutation — store callback for post-loop flush
-            pending_adds_.emplace_back(fd, std::move(cb));
-        } else {
-            fd_callbacks_[fd] = std::move(cb);
-        }
-    }
+  void removeFd(int fd) override {
+    // Tell OS to stop monitoring immediately
+    epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
 
-    void modifyFd(int fd, uint32_t events) override {
-        struct epoll_event ev{};
-        ev.events = events;
-        ev.data.fd = fd;
-        
-        if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev) < 0) {
-            error("[DISPATCHER] Failed to modify fd " + std::to_string(fd) + ": " + strerror(errno));
-        }
+    if (is_iterating_) {
+      pending_removals_.push_back(fd);
+      removed_this_batch_.insert(fd);
+    } else {
+      fd_callbacks_.erase(fd);
     }
+  }
 
-    void removeFd(int fd) override {
-        // Always remove from epoll immediately (stop receiving events)
-        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-        
-        if (is_iterating_) {
-            // Defer the map mutation — mark for post-loop cleanup
-            pending_removals_.push_back(fd);
-            removed_this_batch_.insert(fd);
-        } else {
-            fd_callbacks_.erase(fd);
-        }
+  bool isThreadSafe() const override {
+    // Empty thread_id implies run() hasn't started yet.
+    if (run_thread_id_ == std::thread::id{}) {
+      return true; 
     }
+    return std::this_thread::get_id() == run_thread_id_;
+  }
 
-    bool isThreadSafe() const override {
-        // Empty thread_id means run() hasn't been called yet
-        if (run_thread_id_ == std::thread::id{}) {
-            return true;
-        }
-        return std::this_thread::get_id() == run_thread_id_;
-    }
-
-    const std::string& name() const override {
-        return name_;
-    }
+  const std::string& name() const override { return name_; }
 
 private:
-    void wakeup() {
-        uint64_t val = 1;
-        [[maybe_unused]] ssize_t s = write(wakeup_fd_, &val, sizeof(val));
+  // --- Infrastructure Setup ---
+
+  static int createEpollInstance() {
+    int fd = epoll_create1(EPOLL_CLOEXEC);
+    if (fd < 0) {
+      throw std::runtime_error("epoll_create1 failed: " + std::string(strerror(errno)));
+    }
+    return fd;
+  }
+
+  static int createWakeupEventFd() {
+    int fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (fd < 0) {
+      throw std::runtime_error("eventfd failed: " + std::string(strerror(errno)));
+    }
+    return fd;
+  }
+
+  static void registerWakeupFd(int epoll_fd, int wakeup_fd) {
+    struct epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = wakeup_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, wakeup_fd, &ev) < 0) {
+      throw std::runtime_error("failed to register wakeup fd into epoll: " + std::string(strerror(errno)));
+    }
+  }
+
+  // --- Core Event Loop Logic ---
+
+  void processImmediateTasks() {
+    std::queue<PostCb> tasks_to_run;
+    {
+      std::lock_guard<std::mutex> lock(post_mutex_);
+      if (post_queue_.empty()) {
+		return;
+	  }
+      
+      // Swap is O(1) and minimizes the time we hold the mutex lock
+      std::swap(tasks_to_run, post_queue_);
     }
 
-    void drainWakeup() {
-        uint64_t val;
-        // eventfd is in non-blocking mode, so we can read until EAGAIN
-        while (read(wakeup_fd_, &val, sizeof(val)) > 0) {
-            // Drain all pending wakeups
-        }
+    while (!tasks_to_run.empty()) {
+      const auto& callback = tasks_to_run.front();
+      if (callback) {
+        callback();
+      }
+      tasks_to_run.pop();
+    }
+  }
+
+  void waitForAndDispatchEvents() {
+    is_sleeping_.store(true, std::memory_order_release);
+
+    // Double-check pattern to prevent a data race where a post() happens
+    // after processImmediateTasks() but before we go to sleep via epoll_wait.
+    if (hasPendingTasks()) {
+      is_sleeping_.store(false, std::memory_order_release);
+      return; 
     }
 
-    void runPostedCallbacks() {
-        // Optimize: check if queue is empty before locking
-        if (post_queue_.empty()) return; 
+    struct epoll_event events[max_events];
+    int nfds = epoll_wait(epoll_fd_, events, max_events, epoll_timeout_ms);
 
-        std::queue<PostCb> to_run;
-        {
-            std::lock_guard<std::mutex> lock(post_mutex_);
-            std::swap(to_run, post_queue_);
-        }
-        
-        while (!to_run.empty()) {
-            auto& cb = to_run.front();
-            if (cb) cb();
-            to_run.pop();
-        }
+    is_sleeping_.store(false, std::memory_order_release);
+
+    if (nfds < 0) {
+      handleEpollError();
+      return;
     }
 
-    std::string name_;
-    int epoll_fd_{-1};
-    int wakeup_fd_{-1};
-    
-    std::atomic<bool> running_;
-    std::atomic<bool> exit_requested_;
-    std::atomic<bool> is_sleeping_{false};
-    std::thread::id run_thread_id_;
-    
-    // Posted callbacks (protected by mutex, but run on dispatcher thread)
-    std::mutex post_mutex_;
-    std::queue<PostCb> post_queue_;
-    
-    // File descriptor callbacks
-    std::unordered_map<int, FdCb> fd_callbacks_;
-    
-    // Deferred mutation state (prevents map modification during event iteration)
-    bool is_iterating_{false};
-    std::vector<int> pending_removals_;                      // fds to erase after loop
-    std::unordered_set<int> removed_this_batch_;             // fast lookup for skipping
-    std::vector<std::pair<int, FdCb>> pending_adds_;         // fds to insert after loop
-    
-    // Timer tracking (we store raw pointers; TimerImpl stored elsewhere)
-    std::unordered_map<int, TimerImpl*> timers_;
+    dispatchFiredEvents(events, nfds);
+  }
+
+  void handleEpollError() {
+    if (errno == EINTR) {
+      return; // Harmless interruption by background system signal
+    }
+    error("[DISPATCHER] epoll_wait error: " + std::string(strerror(errno)));
+    exit_requested_ = true; // Initiate graceful failure state
+  }
+
+  bool hasPendingTasks() {
+    std::lock_guard<std::mutex> lock(post_mutex_);
+    return !post_queue_.empty();
+  }
+
+  void dispatchFiredEvents(const epoll_event* events, int nfds) {
+    // Asserting logic lock. We prevent immediate map mutations during dispatch.
+    // If a callback attempts to addFd or removeFd, that action gets deferred.
+    is_iterating_ = true;
+
+    for (int i = 0; i < nfds; ++i) {
+      int fd = events[i].data.fd;
+      uint32_t event_mask = events[i].events;
+
+      // Edge case: A callback executed earlier in this event loop iteration might 
+      // have closed or removed an FD that is scheduled to be processed below.
+      if (removed_this_batch_.count(fd)) {
+        continue;
+      }
+
+      handleSingleEvent(fd, event_mask);
+    }
+
+    is_iterating_ = false;
+  }
+
+  void handleSingleEvent(int fd, uint32_t event_mask) {
+    if (fd == wakeup_fd_) {
+      drainWakeupEvent();
+      // Posted tasks will naturally be processed at the start of the next while-loop cycle.
+    } else if (auto it = fd_callbacks_.find(fd); it != fd_callbacks_.end()) {
+      it->second(event_mask);
+    }
+  }
+
+  void applyDeferredMutations() {
+    // Safely apply queued changes to our callback maps now that no active iterators exist.
+    for (int fd : pending_removals_) {
+      fd_callbacks_.erase(fd);
+    }
+    pending_removals_.clear();
+    removed_this_batch_.clear();
+
+    for (auto& [fd, cb] : pending_adds_) {
+      fd_callbacks_[fd] = std::move(cb);
+    }
+    pending_adds_.clear();
+  }
+
+  // --- Synchronization & Utilities ---
+
+  void triggerWakeup() const {
+    uint64_t val = 1;
+    // Suppressing compiler warning. Failing to wakeup via writing implies
+    // the max queue threshold is reached which is harmless edge case.
+    [[maybe_unused]] ssize_t s = write(wakeup_fd_, &val, sizeof(val));
+  }
+
+  void drainWakeupEvent() const {
+    uint64_t val;
+    // Keep reading until EAGAIN because eventfd is NONBLOCK.
+    // Draining the fd guarantees we don't get trapped in a level-triggered endless spin.
+    while (read(wakeup_fd_, &val, sizeof(val)) > 0) {}
+  }
+
+  // --- State Variables ---
+
+  std::string name_;
+  int epoll_fd_{-1};
+  int wakeup_fd_{-1};
+
+  std::atomic<bool> running_;
+  std::atomic<bool> exit_requested_;
+  std::atomic<bool> is_sleeping_{false};
+  std::thread::id run_thread_id_;
+
+  std::mutex post_mutex_;
+  std::queue<PostCb> post_queue_;
+
+  // Stores lambda handlers for ALL FDs, unifying timers, sockets, etc.
+  std::unordered_map<int, FdCb> fd_callbacks_;
+
+  // State flag ensuring we do not invalidate fd_callbacks_ iterators
+  bool is_iterating_{false};
+  std::vector<int> pending_removals_;
+  std::unordered_set<int> removed_this_batch_;
+  std::vector<std::pair<int, FdCb>> pending_adds_;
 };
 
 /**
@@ -367,16 +409,16 @@ private:
  */
 class DispatcherFactoryImpl : public DispatcherFactory {
 public:
-    DispatcherPtr createDispatcher(const std::string& name) override {
-        return std::make_unique<DispatcherImpl>(name);
-    }
+  DispatcherPtr createDispatcher(const std::string& name) override {
+    return std::make_unique<DispatcherImpl>(name);
+  }
 };
 
 } // namespace event
 
 // Factory function
 event::DispatcherFactoryPtr createDispatcherFactory() {
-    return std::make_unique<event::DispatcherFactoryImpl>();
+  return std::make_unique<event::DispatcherFactoryImpl>();
 }
 
 } // namespace kallisto

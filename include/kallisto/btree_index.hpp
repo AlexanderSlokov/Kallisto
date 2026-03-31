@@ -3,7 +3,6 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <algorithm>
 
 namespace kallisto {
 
@@ -40,45 +39,50 @@ public:
 
 private:
 	struct Node {
-		bool is_leaf;
-		std::vector<std::string> keys;
-		std::vector<std::unique_ptr<Node>> children;
+		bool is_leaf_node;
+		std::vector<std::string> path_keys;
+		std::vector<std::unique_ptr<Node>> child_nodes;
 
-		Node(bool leaf = true) : is_leaf(leaf) {}
+		Node(bool is_leaf = true) : is_leaf_node(is_leaf) {}
 
 		// Deep Copy Constructor
-		Node(const Node& other) : is_leaf(other.is_leaf), keys(other.keys) {
-			for (const auto& child : other.children) {
-				children.push_back(std::make_unique<Node>(*child));
+		Node(const Node& other) : is_leaf_node(other.is_leaf_node), path_keys(other.path_keys) {
+			for (const auto& child : other.child_nodes) {
+				child_nodes.push_back(std::make_unique<Node>(*child));
 			}
 		}
 	};
 
-	std::unique_ptr<Node> root;
-	int min_degree; // Fixed the cryptic "t"
+	std::unique_ptr<Node> root_node_;
+	int min_degree_;
 
 	/**
-	* Splits a child node into two nodes.
-	* @param parent The parent node.
-	* @param i The index of the child to split.
-	* @param child The child node to split.
+	* Splits a child node that is full into two separate nodes.
+	* Maintains the B-Tree properties during insertion.
+	* 
+	* @param parent_node The parent node of the child being split.
+	* @param child_index The index of the child to split in the parent's children array.
+	* @param child_node The actual child node that is full and needs splitting.
 	*/ 
-	void split_child(Node* parent, int i, Node* child);
+	void splitChildNode(Node* parent_node, int child_index, Node* child_node);
 
 	/**
-	* Inserts a key into a non-full node.
-	* @param node The node to insert into.
-	* @param key The key to insert.
+	* Inserts a path key into a node that is guaranteed to not be full.
+	* Recursively travels down the tree.
+	* 
+	* @param current_node The node to insert into.
+	* @param path_key The path string to insert.
 	*/ 
-	void insert_non_full(Node* node, const std::string& key);
+	void insertIntoNonFullNode(Node* current_node, const std::string& path_key);
 
 	/**
-	* Searches for a key in the B-Tree.
-	* @param node The node to search in.
-	* @param key The key to search for.
-	* @return true if the key is found.
+	* Recursively searches for a path key in the B-Tree starting from a given node.
+	* 
+	* @param current_node The node to begin searching from.
+	* @param path_key The path string to search for.
+	* @return true if the path is found.
 	*/ 
-	bool search(Node* node, const std::string& key) const;
+	bool containsPathRecursive(Node* current_node, const std::string& path_key) const;
 };
 
 } // namespace kallisto

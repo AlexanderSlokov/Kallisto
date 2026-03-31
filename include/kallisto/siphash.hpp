@@ -11,12 +11,7 @@ namespace kallisto {
  */
 class SipHash {
 public:
-	/**
-	 * Initializes SipHash with a 128-bit key (seed).
-	 * @param first_part First 64 bits of the key.
-	 * @param second_part Second 64 bits of the key.
-	 */
-	SipHash(uint64_t first_part, uint64_t second_part);
+	SipHash(uint64_t key_part1, uint64_t key_part2);
 
 	/**
 	 * Computes the 64-bit SipHash-2-4 result for the given string.
@@ -28,23 +23,36 @@ public:
 	/**
 	 * Helper to get hash with custom key.
 	 */
-	static uint64_t hash(const std::string& input, uint64_t first_part, 
-			     uint64_t second_part);
+	static uint64_t hash(const std::string& input, uint64_t key_part1, uint64_t key_part2);
 
 private:
-	uint64_t first_part, second_part;
+	uint64_t key_part1_;
+	uint64_t key_part2_;
 
 	// SipRound logic (ARX)
-	static inline uint64_t rotl(uint64_t x, int b) {
-		return (x << b) | (x >> (64 - b));
+	static inline uint64_t rotl(uint64_t value, int shift) {
+		return (value << shift) | (value >> (64 - shift));
 	}
 
-	static inline void sipround(uint64_t& state0, uint64_t& state1, 
-				    uint64_t& state2, uint64_t& state3) {
-		state0 += state1; state1 = rotl(state1, 13); state1 ^= state0; state0 = rotl(state0, 32);
-		state2 += state3; state3 = rotl(state3, 16); state3 ^= state2;
-		state0 += state3; state3 = rotl(state3, 21); state3 ^= state0;
-		state2 += state1; state1 = rotl(state1, 17); state1 ^= state2; state2 = rotl(state2, 32);
+	static inline void performSipRound(uint64_t& state0, uint64_t& state1, 
+									   uint64_t& state2, uint64_t& state3) {
+		state0 += state1; 
+		state1 = rotl(state1, 13); 
+		state1 ^= state0; 
+		state0 = rotl(state0, 32);
+
+		state2 += state3; 
+		state3 = rotl(state3, 16); 
+		state3 ^= state2;
+
+		state0 += state3; 
+		state3 = rotl(state3, 21); 
+		state3 ^= state0;
+
+		state2 += state1; 
+		state1 = rotl(state1, 17); 
+		state1 ^= state2; 
+		state2 = rotl(state2, 32);
 	}
 };
 
