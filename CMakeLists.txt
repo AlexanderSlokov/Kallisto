@@ -24,8 +24,7 @@ add_library(kallisto_lib
     src/btree_index.cpp
     src/tls_btree_manager.cpp
     src/rocksdb_storage.cpp
-    src/kallisto.cpp
-    src/kallisto_engine.cpp
+    src/kallisto_core.cpp
     # Threading infrastructure (Phase 1.1)
     src/event/dispatcher_impl.cpp
     src/event/worker_impl.cpp
@@ -85,10 +84,18 @@ add_executable(test_thread_local src/thread_local/test_thread_local.cpp)
 target_link_libraries(test_thread_local PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME ThreadLocalTest COMMAND test_thread_local)
 
+add_executable(test_dispatcher src/event/test_dispatcher.cpp)
+target_link_libraries(test_dispatcher PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME DispatcherTest COMMAND test_dispatcher)
+
+add_executable(test_worker src/event/test_worker.cpp)
+target_link_libraries(test_worker PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME WorkerTest COMMAND test_worker)
+
 # Modern GTest Suites
-add_executable(test_kallisto_engine tests/test_kallisto_engine.cpp)
-target_link_libraries(test_kallisto_engine PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
-add_test(NAME KallistoEngineTest COMMAND test_kallisto_engine)
+add_executable(test_kallisto_core tests/test_kallisto_core.cpp)
+target_link_libraries(test_kallisto_core PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME KallistoCoreTest COMMAND test_kallisto_core)
 
 # Kallisto UDS Admin tests
 add_executable(test_uds_admin tests/test_uds_admin.cpp)

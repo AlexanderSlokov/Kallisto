@@ -84,7 +84,7 @@ Khắc phục: Gọi hàm `server.reset();` ngay phía trên `exit(0)`. Điều 
 
 ### Phase 4: "The One True Core" & UDS Admin CLI
 - **Status:** COMPLETE
-- **Architecture:** Eliminated Split-Brain architecture. Introduced `KallistoEngine` Repository encapsulating all storage layers (B-Tree, Cuckoo, RocksDB, TTL Management). Handlers are now purely unopinionated I/O routers.
+- **Architecture:** Eliminated Split-Brain architecture. Introduced `KallistoCore` Repository encapsulating all storage layers (B-Tree, Cuckoo, RocksDB, TTL Management). Handlers are now purely unopinionated I/O routers.
 - **Security:** Removed legacy REPL. Implemented thin UDS Admin CLI securely bound to `/var/run/kallisto.sock` using OS-level `0600` permissions.
 - **Testing:** Comprehensive Test-Driven Development (TDD) resulting in 100% test pass rate with coverage profiling.
-- **Core Files:** `kallisto_engine.hpp/cpp`, `uds_admin_handler.hpp/cpp`, `main.cpp`.
+- **Core Files:** `kallisto_core.hpp/cpp`, `uds_admin_handler.hpp/cpp`, `main.cpp`.

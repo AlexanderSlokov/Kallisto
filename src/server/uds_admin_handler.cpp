@@ -10,9 +10,9 @@
 namespace kallisto {
 namespace server {
 
-UdsAdminHandler::UdsAdminHandler(std::shared_ptr<KallistoEngine> engine, 
+UdsAdminHandler::UdsAdminHandler(std::shared_ptr<KallistoCore> core, 
                                  const std::string& socket_path)
-    : engine_(std::move(engine)), socket_path_(socket_path) {
+    : core_(std::move(core)), socket_path_(socket_path) {
 }
 
 UdsAdminHandler::~UdsAdminHandler() {
@@ -118,15 +118,15 @@ void UdsAdminHandler::handleClient(int client_fd) {
     std::string response = "UNKNOWN COMMAND\n";
 
     if (cmd == "SAVE") {
-        engine_->force_flush();
+        core_->force_flush();
         kallisto::info("[UDS Admin] Invoked manual SAVE.");
         response = "OK: Database flushed to disk.\n";
     } else if (cmd == "MODE BATCH") {
-        engine_->change_sync_mode(KallistoEngine::SyncMode::BATCH);
+        core_->change_sync_mode(KallistoCore::SyncMode::BATCH);
         kallisto::info("[UDS Admin] Sync mode changed to BATCH.");
         response = "OK: Mode changed to BATCH.\n";
     } else if (cmd == "MODE IMMEDIATE") {
-        engine_->change_sync_mode(KallistoEngine::SyncMode::IMMEDIATE);
+        core_->change_sync_mode(KallistoCore::SyncMode::IMMEDIATE);
         kallisto::info("[UDS Admin] Sync mode changed to IMMEDIATE.");
         response = "OK: Mode changed to IMMEDIATE.\n";
     }

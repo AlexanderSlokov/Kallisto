@@ -1,6 +1,6 @@
 #pragma once
 
-#include "kallisto/kallisto_engine.hpp"
+#include "kallisto/kallisto_core.hpp"
 #include <memory>
 #include <string>
 #include <thread>
@@ -11,7 +11,7 @@ namespace server {
 
 class UdsAdminHandler {
 public:
-    UdsAdminHandler(std::shared_ptr<KallistoEngine> engine, 
+    UdsAdminHandler(std::shared_ptr<KallistoCore> core, 
                     const std::string& socket_path = "/var/run/kallisto.sock");
     ~UdsAdminHandler();
 
@@ -22,7 +22,7 @@ private:
     void acceptLoop();
     void handleClient(int client_fd);
 
-    std::shared_ptr<KallistoEngine> engine_;
+    std::shared_ptr<KallistoCore> core_;
     std::string socket_path_;
     int server_fd_{-1};
     std::thread accept_thread_;

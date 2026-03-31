@@ -15,9 +15,9 @@ namespace server {
 // ---------------------------------------------------------------------------
 
 HttpHandler::HttpHandler(event::Dispatcher& dispatcher,
-                         std::shared_ptr<KallistoEngine> engine)
+                         std::shared_ptr<KallistoCore> core)
     : dispatcher_(dispatcher)
-    , engine_(std::move(engine)) {
+    , core_(std::move(core)) {
 }
 
 HttpHandler::~HttpHandler() {
@@ -272,8 +272,8 @@ void HttpHandler::handleRequest(Connection& conn, const HttpRequest& req) {
 // ---------------------------------------------------------------------------
 
 void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
-    if (!engine_) {
-        sendError(conn, 500, "Engine not initialized");
+    if (!core_) {
+        sendError(conn, 500, "Core not initialized");
         return;
     }
     
@@ -286,7 +286,7 @@ void HttpHandler::handleGetSecret(Connection& conn, const std::string& path) {
         key = path.substr(slash + 1);
     }
     
-    auto result = engine_->get(dir, key);
+    auto result = core_->get(dir, key);
     
     if (!result.has_value()) {
         sendError(conn, 404, "Secret not found");
@@ -353,17 +353,17 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
         key = path.substr(slash + 1);
     }
     
-    bool ok = engine_->put(dir, key, value, ttl);
+    bool ok = core_->put(dir, key, value, ttl);
     
     if (ok) {
         sendResponse(conn, 200, "application/json", "{\"data\":{\"created\":true}}");
     } else {
-        sendError(conn, 500, "Failed to store secret in engine");
+        sendError(conn, 500, "Failed to store secret in core");
     }
 }
 
 void HttpHandler::handleDeleteSecret(Connection& conn, const std::string& path) {
-    if (!engine_) { 
+    if (!core_) { 
 		return;
 	}
     
@@ -375,7 +375,7 @@ void HttpHandler::handleDeleteSecret(Connection& conn, const std::string& path) 
         key = path.substr(slash + 1);
     }
     
-    engine_->del(dir, key);
+    core_->del(dir, key);
     sendResponse(conn, 204, "", "");
 }
 

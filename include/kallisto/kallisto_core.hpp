@@ -13,14 +13,14 @@ namespace kallisto {
 
 class RocksDBStorage;
 
-class KallistoEngine {
+class KallistoCore {
 public:
-  KallistoEngine(const std::string& db_path = "/var/lib/kallisto/data");
-  ~KallistoEngine();
+  KallistoCore(const std::string& db_path = "/var/lib/kallisto/data");
+  ~KallistoCore();
 
   // Prevent copying
-  KallistoEngine(const KallistoEngine&) = delete;
-  KallistoEngine& operator=(const KallistoEngine&) = delete;
+  KallistoCore(const KallistoCore&) = delete;
+  KallistoCore& operator=(const KallistoCore&) = delete;
 
   /**
    * @brief Stores a secret at a specific path.

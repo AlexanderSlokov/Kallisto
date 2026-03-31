@@ -4,18 +4,18 @@
 #include <vector>
 #include <atomic>
 #include <filesystem>
-#include "kallisto/kallisto_engine.hpp"
+#include "kallisto/kallisto_core.hpp"
 
 using namespace kallisto;
 
-// Test Fixture for KallistoEngine
-class KallistoEngineTest : public ::testing::Test {
+// Test Fixture for KallistoCore
+class KallistoCoreTest : public ::testing::Test {
 protected:
     std::string test_db_path = "/tmp/kallisto_test_123";
 
     void SetUp() override {
         std::filesystem::remove_all(test_db_path);
-        engine = std::make_unique<KallistoEngine>(test_db_path);
+        engine = std::make_unique<KallistoCore>(test_db_path);
     }
 
     void TearDown() override {
@@ -23,13 +23,13 @@ protected:
         std::filesystem::remove_all(test_db_path);
     }
 
-    std::unique_ptr<KallistoEngine> engine;
+    std::unique_ptr<KallistoCore> engine;
 };
 
 // ============================================================================
 // 1. Test Khởi tạo & Ghi/Đọc cơ bản
 // ============================================================================
-TEST_F(KallistoEngineTest, BasicReadWrite) {
+TEST_F(KallistoCoreTest, BasicReadWrite) {
     bool inserted = engine->put("/prod/db", "password", "super_secret");
     EXPECT_TRUE(inserted) << "Engine should successfully store the secret";
 
@@ -45,13 +45,13 @@ TEST_F(KallistoEngineTest, BasicReadWrite) {
 // ============================================================================
 // 2. Test Fallback (Cache miss thì kéo từ RocksDB lên)
 // ============================================================================
-TEST_F(KallistoEngineTest, CacheMissFallback) {
-    engine->change_sync_mode(KallistoEngine::SyncMode::IMMEDIATE);
+TEST_F(KallistoCoreTest, CacheMissFallback) {
+    engine->change_sync_mode(KallistoCore::SyncMode::IMMEDIATE);
     engine->put("/fallback", "key1", "data1");
     
     // Restart engine (hủy vùng nhớ Cache) to simulate memory loss
     engine.reset();
-    engine = std::make_unique<KallistoEngine>(test_db_path);
+    engine = std::make_unique<KallistoCore>(test_db_path);
     
     // Cache is now empty. The first get() should trigger the Fallback logic to RocksDB.
     auto entry = engine->get("/fallback", "key1");
@@ -62,7 +62,7 @@ TEST_F(KallistoEngineTest, CacheMissFallback) {
 // ============================================================================
 // 3. Test Boundary: Khởi tạo biến TTL thiếu mặc định an toàn an toàn (3600)
 // ============================================================================
-TEST_F(KallistoEngineTest, DefaultTTLBoundary) {
+TEST_F(KallistoCoreTest, DefaultTTLBoundary) {
     // Calling put without specifying TTL validates the header default 3600s assignment
     bool inserted = engine->put("/ttl_test", "key_no_ttl", "value_default");
     EXPECT_TRUE(inserted);
@@ -76,7 +76,7 @@ TEST_F(KallistoEngineTest, DefaultTTLBoundary) {
 // ============================================================================
 // 4. Test Concurrency: 10 threads gọi put() và change_sync_mode() liên tục
 // ============================================================================
-TEST_F(KallistoEngineTest, ConcurrencyStressTest) {
+TEST_F(KallistoCoreTest, ConcurrencyStressTest) {
     constexpr int NUM_THREADS = 10;
     constexpr int OPS_PER_THREAD = 1000;
     std::vector<std::thread> threads;
@@ -93,7 +93,7 @@ TEST_F(KallistoEngineTest, ConcurrencyStressTest) {
                 
                 // Stress testing std::atomic<SyncMode> write
                 if (j % 100 == 0) {
-                    auto mode = (j % 2 == 0) ? KallistoEngine::SyncMode::BATCH : KallistoEngine::SyncMode::IMMEDIATE;
+                    auto mode = (j % 2 == 0) ? KallistoCore::SyncMode::BATCH : KallistoCore::SyncMode::IMMEDIATE;
                     engine->change_sync_mode(mode);
                 }
 

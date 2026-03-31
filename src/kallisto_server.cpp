@@ -10,7 +10,7 @@
 #include "kallisto/event/worker.hpp"
 #include "kallisto/server/http_handler.hpp"
 #include "kallisto/server/uds_admin_handler.hpp"
-#include "kallisto/kallisto_engine.hpp"
+#include "kallisto/kallisto_core.hpp"
 #include "kallisto/logger.hpp"
 
 #include <csignal>
@@ -89,8 +89,8 @@ int main(int argc, char** argv) {
     
     auto pool = createWorkerPool(num_workers);
     
-    auto engine = std::make_shared<KallistoEngine>(db_path);
-    info("[SERVER] KallistoEngine created and initialized with DB path: " + db_path);
+    auto core = std::make_shared<KallistoCore>(db_path);
+    info("[SERVER] KallistoCore created and initialized with DB path: " + db_path);
     
     // Store handlers to prevent premature destruction
     std::vector<std::shared_ptr<server::HttpHandler>> http_handlers;
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
             
             // Each worker binds HTTP port (SO_REUSEPORT)
             auto http_handler = std::make_shared<server::HttpHandler>(
-                worker.dispatcher(), engine);
+                worker.dispatcher(), core);
             worker.bindListener(http_port, [http_handler](int fd) {
                 http_handler->onNewConnection(fd);
             });
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     });
     
     // Start Unix Domain Socket Admin Handler
-    auto uds_admin = std::make_unique<server::UdsAdminHandler>(engine);
+    auto uds_admin = std::make_unique<server::UdsAdminHandler>(core);
     uds_admin->start();
     
     info("[SERVER] Kallisto is READY. Accepting connections.");
@@ -138,8 +138,8 @@ int main(int argc, char** argv) {
     uds_admin->stop();
     
     // Flush Engine on shutdown
-    engine->force_flush();
-    info("[SERVER] KallistoEngine flushed.");
+    core->force_flush();
+    info("[SERVER] KallistoCore flushed.");
     
     info("[SERVER] Shutdown complete.");
     return 0;

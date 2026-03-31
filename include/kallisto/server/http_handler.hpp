@@ -1,7 +1,7 @@
 #pragma once
 
 #include "kallisto/net/listener.hpp"
-#include "kallisto/kallisto_engine.hpp"
+#include "kallisto/kallisto_core.hpp"
 
 #include <memory>
 #include <string>
@@ -35,7 +35,7 @@ namespace server {
 class HttpHandler {
 public:
     HttpHandler(event::Dispatcher& dispatcher,
-                std::shared_ptr<KallistoEngine> engine);
+                std::shared_ptr<KallistoCore> core);
     ~HttpHandler();
     
     /**
@@ -94,7 +94,7 @@ private:
     static std::string statusText(int code);
     
     event::Dispatcher& dispatcher_;
-    std::shared_ptr<KallistoEngine> engine_;
+    std::shared_ptr<KallistoCore> core_;
     std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 
