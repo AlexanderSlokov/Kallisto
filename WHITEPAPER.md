@@ -164,7 +164,7 @@ A secret management system does not only store secrets in RAM but also needs to 
 
 Example 1, if `PUT /prod/payment`:
 1.  The system runs from the root.
-2.  If the root is full, call `split_child` to split root -> Tree height increases by 1.
+2.  If the root is full, call `splitChild` to split root -> Tree height increases by 1.
 3.  Find the appropriate child branch (greater than/less than key).
 4.  Recursively down (Insert Non-Full).
 
@@ -273,7 +273,7 @@ Kallisto uses B-Tree (not Binary Tree) to manage the list of paths (Path Index).
 The most difficult part of B-Tree is when a Node is full, it must split into two and push the middle key up to the parent. This is the code that handles this (`src/btree_index.cpp`):
 
 ```cpp
-void BTreeIndex::split_child(Node* parent, int i, Node* child) {
+void BTreeIndex::splitChild(Node* parent, int i, Node* child) {
     // 1. Tạo node mới 'z' chứa nửa sau của 'child'
     auto z = std::make_unique<Node>(child->is_leaf);
     

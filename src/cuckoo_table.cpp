@@ -5,6 +5,7 @@
 #include <cstring> // for memset
 #include <random>  // For random kick
 #include <stdexcept>
+#include "kallisto/siphash.hpp"
 
 namespace kallisto {
 
