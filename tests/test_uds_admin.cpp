@@ -41,7 +41,9 @@ protected:
 
     std::string sendCommand(const std::string& cmd) {
         int sock = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        if (sock < 0) return "SOCKET_ERROR";
+        if (sock < 0) {
+            return "SOCKET_ERROR";
+        }
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -62,8 +64,10 @@ protected:
         ssize_t bytes = ::recv(sock, buf, sizeof(buf) - 1, 0);
         ::close(sock);
 
-        if (bytes < 0) return "RECV_ERROR";
-        return std::string(buf, bytes);
+        if (bytes < 0) {
+            return "RECV_ERROR";
+        }
+        return {buf, static_cast<size_t>(bytes)};
     }
 
     std::shared_ptr<KallistoCore> core;

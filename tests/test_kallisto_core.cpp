@@ -77,16 +77,16 @@ TEST_F(KallistoCoreTest, DefaultTTLBoundary) {
 // 4. Test Concurrency: 10 threads gọi put() và change_sync_mode() liên tục
 // ============================================================================
 TEST_F(KallistoCoreTest, ConcurrencyStressTest) {
-    constexpr int NUM_THREADS = 10;
-    constexpr int OPS_PER_THREAD = 1000;
+    constexpr int num_threads = 10;
+    constexpr int ops_per_thread = 1000;
     std::vector<std::thread> threads;
     std::atomic<int> success_count{0};
 
     // Stomping the atomic sync_mode_ and unsaved_ops_count_ simultaneously
-    threads.reserve(NUM_THREADS);
-    for (int i = 0; i < NUM_THREADS; ++i) {
-        threads.emplace_back([this, i, &success_count, OPS_PER_THREAD]() {
-            for (int j = 0; j < OPS_PER_THREAD; ++j) {
+    threads.reserve(num_threads);
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([this, i, &success_count, ops_per_thread]() {
+            for (int j = 0; j < ops_per_thread; ++j) {
                 std::string path = "/concurrent/" + std::to_string(i);
                 std::string key = "key_" + std::to_string(j);
                 std::string val = "val_" + std::to_string(i) + "_" + std::to_string(j);
@@ -108,10 +108,12 @@ TEST_F(KallistoCoreTest, ConcurrencyStressTest) {
     }
 
     for (auto& t : threads) {
-        if (t.joinable()) t.join();
+        if (t.joinable()) {
+            t.join();
+        }
     }
 
-    EXPECT_EQ(success_count.load(), NUM_THREADS * OPS_PER_THREAD) 
+    EXPECT_EQ(success_count.load(), num_threads * ops_per_thread) 
         << "All concurrent puts must succeed without data races crashing the server";
         
     auto res = engine->get("/concurrent/5", "key_500");

@@ -21,6 +21,7 @@
 #include <atomic>
 #include <vector>
 #include <memory>
+#include <chrono>
 
 namespace {
     std::atomic<bool> shutdown_requested{false};
@@ -48,7 +49,9 @@ int main(int argc, char** argv) {
     // Default configuration
     uint16_t http_port = 8200;
     size_t num_workers = std::thread::hardware_concurrency();
-    if (num_workers == 0) num_workers = 4;
+    if (num_workers == 0) {
+        num_workers = 4;
+    }
     
     // Parse CLI args
     for (int i = 1; i < argc; i++) {
