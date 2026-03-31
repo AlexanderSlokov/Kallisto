@@ -231,7 +231,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
     std::string current_key = key;
     SecretEntry current_entry = entry;
 
-    for (int i = 0; i < max_displacements; ++i) {
+    for (int i = 0; i < max_displacements_; ++i) {
         // [PHASE 1] Try to insert into Table 1
         size_t h1 = hash_1(current_key);
         if (!table_1[h1].occupied) {
@@ -255,7 +255,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
         std::swap(current_entry, table_2[h2].entry);
     }
 
-    // If looped too many times (reach max_displacements) without finding a slot -> Resize
+    // If looped too many times (reach max_displacements_) without finding a slot -> Resize
     return false; 
 }
 ```
@@ -508,7 +508,7 @@ O(L) where L is the length of the input string. SipHash processes the input in 8
 
 - **Lookup (GET)**: O(1) Worst Case. The algorithm checks exactly 2 locations: `T1[h1(x)]` and `T2[h2(x)]`. It never scans a list or probes deeper. This is the main selling point over Chaining (O(N) worst case) or Linear Probing (O(N) worst case under high load).
 
-- **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `MAX_DISPLACEMENTS`. Rehash (if table is full) takes O(N), but happens very rarely.
+- **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `max_displacements_`. Rehash (if table is full) takes O(N), but happens very rarely.
 
 ### 7.1.3. B-Tree (Path Validation)
 

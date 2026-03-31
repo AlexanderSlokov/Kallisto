@@ -1,11 +1,9 @@
 #pragma once
 
 #include "kallisto/secret_entry.hpp"
-#include "kallisto/siphash.hpp"
 
 #include <atomic>
 #include <cstdlib>
-#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -85,7 +83,7 @@ private:
 
   // Memory Management
   std::vector<uint32_t> free_list; // Stack (LIFO) for recycled indices
-  uint32_t next_free_index = 0;    // High-water mark for new allocations
+  uint32_t next_free_index_ = 0;   // High-water mark for new allocations
 
   // Concurrency & Stats
   mutable std::shared_mutex
@@ -96,15 +94,15 @@ private:
   std::atomic<size_t> shadow_storage_size_{0};
   std::atomic<size_t> shadow_free_list_size_{0};
 
-  size_t capacity;                   // Number of buckets per table
-  const int max_displacements = 500; // Increased due to higher load factor capability
+  size_t capacity;                    // Number of buckets per table
+  const int max_displacements_ = 256; // Increased due to higher load factor capability
 
   // Hash helpers return full 64-bit for Tag extraction
   uint64_t hash1Full(const std::string& key) const;
   uint64_t hash2Full(const std::string& key) const;
 
   // Tag generation: Extract high 32-bits from hash
-  static inline uint32_t get_tag(uint64_t method) {
+  static inline uint32_t getTag(uint64_t method) {
     uint32_t tag = static_cast<uint32_t>(method >> 32);
     return tag == 0 ? 1 : tag; // Tag 0 reserved? No, but let's just use raw bits.
   }

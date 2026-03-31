@@ -53,7 +53,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 
   // 1. Check if key already exists (Update)
   uint64_t h1_raw = hash1Full(key);
-  uint32_t tag = get_tag(h1_raw);
+  uint32_t tag = getTag(h1_raw);
   size_t idx1 = h1_raw % capacity;
 
   for (int i = 0; i < slots_per_bucket; ++i) {
@@ -105,7 +105,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
   uint32_t current_tag = tag;
 
   // Attempt to insert
-  for (int i = 0; i < max_displacements; ++i) {
+  for (int i = 0; i < max_displacements_; ++i) {
     // Try Table 1
     const std::string& cur_key = storage[current_index].key;
     uint64_t h1 = hash1Full(cur_key);
@@ -156,7 +156,7 @@ std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
   std::shared_lock<std::shared_mutex> lock(rw_lock_); // READER LOCK (Shared)
 
   uint64_t h1_raw = hash1Full(key);
-  uint32_t tag = get_tag(h1_raw);
+  uint32_t tag = getTag(h1_raw);
   size_t idx1 = h1_raw % capacity;
 
   for (int i = 0; i < slots_per_bucket; ++i) {
@@ -210,7 +210,7 @@ bool CuckooTable::remove(const std::string& key) {
   std::unique_lock<std::shared_mutex> lock(rw_lock_); // WRITER LOCK (Exclusive)
 
   uint64_t h1_raw = hash1Full(key);
-  uint32_t tag = get_tag(h1_raw);
+  uint32_t tag = getTag(h1_raw);
   size_t idx1 = h1_raw % capacity;
 
   for (int i = 0; i < slots_per_bucket; ++i) {
