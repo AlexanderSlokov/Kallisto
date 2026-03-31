@@ -15,7 +15,9 @@ BTreeIndex::BTreeIndex(const BTreeIndex& other) : min_degree(other.min_degree) {
 }
 
 bool BTreeIndex::insertPath(const std::string& path) {
-    if (search(root.get(), path)) return true;
+    if (search(root.get(), path)) {
+        return true;
+    }
 
     Node* r = root.get();
     if (r->keys.size() == 2 * min_degree - 1) {

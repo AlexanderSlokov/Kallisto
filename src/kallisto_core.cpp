@@ -5,8 +5,8 @@
 namespace kallisto {
 
 KallistoCore::KallistoCore(const std::string& db_path) {
-    storage_ = std::make_unique<ShardedCuckooTable>(2000000); // 2M slots
-    path_index_ = std::make_unique<TlsBTreeManager>(100, nullptr); // BTree degree 100
+    storage_ = std::make_unique<ShardedCuckooTable>(default_cuckoo_size);
+    path_index_ = std::make_unique<TlsBTreeManager>(default_btree_degree, nullptr);
     rocksdb_persistence_ = std::make_unique<RocksDBStorage>(db_path);
 
     // Set initial sync mode to RocksDB
@@ -46,7 +46,7 @@ bool KallistoCore::put(const std::string& path, const std::string& key, const st
     // 2. Batch Mode Counter (Lock-free stampede prevention)
     if (sync_mode_.load(std::memory_order_relaxed) == SyncMode::BATCH) {
         size_t ops = unsaved_ops_count_.fetch_add(1, std::memory_order_relaxed);
-        if (ops >= SYNC_THRESHOLD) {
+        if (ops >= sync_threshold) {
             size_t current = ops + 1;
             // Only the thread that successfully resets it to 0 gets to trigger the flush call
             if (unsaved_ops_count_.compare_exchange_strong(current, 0, std::memory_order_relaxed)) {
