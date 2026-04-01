@@ -119,6 +119,10 @@ add_executable(test_siphash src/test_siphash.cpp)
 target_link_libraries(test_siphash PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME SipHashTest COMMAND test_siphash)
 
+add_executable(test_http_handler src/server/test_http_handler.cpp)
+target_link_libraries(test_http_handler PRIVATE kallisto_server_lib kallisto_lib GTest::gtest GTest::gtest_main GTest::gmock pthread)
+add_test(NAME HttpHandlerTest COMMAND test_http_handler)
+
 add_executable(test_kallisto_server src/test_kallisto_server.cpp)
 # Note: we link against kallisto_server_lib so the HttpHandler/UdsAdmin implementations are met
 target_link_libraries(test_kallisto_server PRIVATE kallisto_server_lib kallisto_lib GTest::gtest GTest::gtest_main pthread)
