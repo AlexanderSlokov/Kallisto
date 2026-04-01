@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "kallisto/server/uds_admin_handler.hpp"
-#include "kallisto/kallisto_engine.hpp"
+#include "kallisto/kallisto_core.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -16,10 +16,10 @@ using namespace kallisto::server;
 class UdsAdminTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create engine (using temporary db path)
+        // Create core (using temporary db path)
         std::string db_path = "/tmp/kallisto_test_db_" + std::to_string(
             std::chrono::system_clock::now().time_since_epoch().count());
-        engine = std::make_shared<KallistoEngine>(db_path);
+        core = std::make_shared<KallistoCore>(db_path);
         
         socket_path = "/tmp/kallisto_test_admin.sock";
         
@@ -36,12 +36,14 @@ protected:
         if (std::filesystem::exists(socket_path)) {
             std::filesystem::remove(socket_path);
         }
-        engine.reset();
+        core.reset();
     }
 
     std::string sendCommand(const std::string& cmd) {
         int sock = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        if (sock < 0) return "SOCKET_ERROR";
+        if (sock < 0) {
+            return "SOCKET_ERROR";
+        }
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -62,18 +64,20 @@ protected:
         ssize_t bytes = ::recv(sock, buf, sizeof(buf) - 1, 0);
         ::close(sock);
 
-        if (bytes < 0) return "RECV_ERROR";
-        return std::string(buf, bytes);
+        if (bytes < 0) {
+            return "RECV_ERROR";
+        }
+        return {buf, static_cast<size_t>(bytes)};
     }
 
-    std::shared_ptr<KallistoEngine> engine;
+    std::shared_ptr<KallistoCore> core;
     std::string socket_path;
     std::unique_ptr<UdsAdminHandler> handler;
 };
 
 // Test 1: Happy Path
 TEST_F(UdsAdminTest, HappyPathSave) {
-    handler = std::make_unique<UdsAdminHandler>(engine, socket_path);
+    handler = std::make_unique<UdsAdminHandler>(core, socket_path);
     handler->start();
     std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Wait for listen
 
@@ -83,7 +87,7 @@ TEST_F(UdsAdminTest, HappyPathSave) {
 
 // Test 2: Bad Command
 TEST_F(UdsAdminTest, BadCommand) {
-    handler = std::make_unique<UdsAdminHandler>(engine, socket_path);
+    handler = std::make_unique<UdsAdminHandler>(core, socket_path);
     handler->start();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -93,7 +97,7 @@ TEST_F(UdsAdminTest, BadCommand) {
 
 // Test 3: Whitespace Tolerance
 TEST_F(UdsAdminTest, WhitespaceTolerance) {
-    handler = std::make_unique<UdsAdminHandler>(engine, socket_path);
+    handler = std::make_unique<UdsAdminHandler>(core, socket_path);
     handler->start();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -103,7 +107,7 @@ TEST_F(UdsAdminTest, WhitespaceTolerance) {
 
 // Test 4: Resource Cleanup (Zombie Socket Prevention)
 TEST_F(UdsAdminTest, ResourceCleanup) {
-    handler = std::make_unique<UdsAdminHandler>(engine, socket_path);
+    handler = std::make_unique<UdsAdminHandler>(core, socket_path);
     handler->start();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     

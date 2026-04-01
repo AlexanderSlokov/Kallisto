@@ -13,14 +13,14 @@ namespace kallisto {
 
 class RocksDBStorage;
 
-class KallistoEngine {
+class KallistoCore {
 public:
-  KallistoEngine(const std::string& db_path = "/var/lib/kallisto/data");
-  ~KallistoEngine();
+  KallistoCore(const std::string& db_path = "/var/lib/kallisto/data");
+  ~KallistoCore();
 
   // Prevent copying
-  KallistoEngine(const KallistoEngine&) = delete;
-  KallistoEngine& operator=(const KallistoEngine&) = delete;
+  KallistoCore(const KallistoCore&) = delete;
+  KallistoCore& operator=(const KallistoCore&) = delete;
 
   /**
    * @brief Stores a secret at a specific path.
@@ -69,7 +69,9 @@ private:
   std::atomic<SyncMode> sync_mode_{SyncMode::IMMEDIATE};
   std::atomic<size_t> unsaved_ops_count_{0};
 
-  static constexpr size_t SYNC_THRESHOLD = 100000;
+  static constexpr size_t default_cuckoo_size = 2097152; // 2^21 slots
+  static constexpr int default_btree_degree = 100;
+  static constexpr size_t sync_threshold = 100000;
 
   // Internal helpers
   void check_and_sync();

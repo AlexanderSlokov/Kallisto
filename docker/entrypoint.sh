@@ -5,7 +5,6 @@ set -e
 WORKERS=${WORKERS:-$(nproc)}
 DB_PATH=${DB_PATH:-/data/kallisto/rocksdb}
 PORT_HTTP=${PORT_HTTP:-8200}
-PORT_GRPC=${PORT_GRPC:-8201}
 
 echo "====================================================================="
 echo "  Starting Kallisto Server"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # Kallisto Server Load Test Suite
-# Uses wrk to stress test the HTTP Vault API (SO_REUSEPORT architecture)
+# Uses wrk to stress test the HTTP API
 #
 # Usage: ./bench/run_server_bench.sh [threads] [connections] [duration]
-#   Default: 4 threads, 200 connections, 10s duration
+# Default: 4 threads, 200 connections, 10s duration
 #
 set -euo pipefail
 
@@ -27,7 +27,7 @@ DURATION=${4:-10s}
 HTTP_PORT=8200
 GRPC_PORT=8201
 SERVER_BIN="./build/kallisto_server"
-CLI_BIN="./build/kallisto" # Tên CLI của ông
+CLI_BIN="./build/kallisto"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Colors ──────────────────────────────────────────────────────────────
@@ -67,13 +67,12 @@ check_prereqs() {
 start_server() {
     echo -e "${CYAN}[1/5] Starting Kallisto server (${WORKERS} workers) as ROOT...${NC}"
 
-    # Ép dùng sudo để dọn dẹp các tiến trình cũ
+    # Clean up old processes and socket files
     sudo pkill -f kallisto_server 2>/dev/null || true
-    # Dọn luôn cái file socket cũ nếu nó còn sót (đề phòng)
     sudo rm -f /var/run/kallisto.sock 2>/dev/null
     sleep 0.5
 
-    # Chạy server với đặc quyền sudo để có thể bind /var/run/kallisto.sock
+    # Run server with sudo privileges to bind /var/run/kallisto.sock
     sudo $SERVER_BIN --http-port=$HTTP_PORT --grpc-port=$GRPC_PORT --workers=$WORKERS &>/dev/null &
     SERVER_PID=$!
 
@@ -86,17 +85,13 @@ start_server() {
     sleep 0.5
     echo -e "${GREEN}  ✓ Server started (PID: $SERVER_PID)${NC}"
 
-    # =================================================================
-    # Dùng sudo để CLI có quyền chọc vào socket của root
-    # =================================================================
     echo -e "${CYAN}  Switching to BATCH mode...${NC}"
     sudo $CLI_BIN "MODE BATCH"
     sleep 0.5
-    # =================================================================
 }
 
 seed_data() {
-    echo -e "${CYAN}[2/5] Seeding data with wrk (3 seconds)...${NC}"
+    echo -e "${CYAN}[2/5] Seeding data with wrk in 3 seconds...${NC}"
     wrk -t2 -c10 -d3s -s "$SCRIPT_DIR/wrk_seed.lua" "http://localhost:$HTTP_PORT" 2>/dev/null
 
     VERIFY=$(curl -s --max-time 2 -H "Connection: close" "http://localhost:$HTTP_PORT/v1/secret/data/bench/s0" 2>/dev/null || echo "FAIL")
@@ -129,7 +124,6 @@ run_benchmarks() {
 cleanup() {
     echo ""
     echo -e "${CYAN}Shutting down server...${NC}"
-    # Phải dùng sudo kill vì server đang chạy quyền root
     sudo kill $SERVER_PID 2>/dev/null || true
     wait $SERVER_PID 2>/dev/null || true
     echo -e "${GREEN}Done.${NC}"

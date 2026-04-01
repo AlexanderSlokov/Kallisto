@@ -25,8 +25,8 @@ RUN mkdir -p /data/kallisto && chown -R vscode:vscode /data/kallisto
 USER vscode
 
 # [Kallisto] Install vcpkg
-RUN git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg" && cd "$HOME/vcpkg" && ./bootstrap-vcpkg.sh
-RUN export VCPKG_ROOT="$HOME/vcpkg" && export PATH="$VCPKG_ROOT:$PATH"
+# RUN git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg" && cd "$HOME/vcpkg" && ./bootstrap-vcpkg.sh
+# RUN export VCPKG_ROOT="$HOME/vcpkg" && export PATH="$VCPKG_ROOT:$PATH"
 
 # [Kallisto] Install wrk
-RUN git clone https://github.com/wg/wrk.git wrk && cd wrk && sudo make && sudo cp wrk /usr/local/bin
+# RUN git clone https://github.com/wg/wrk.git wrk && cd wrk && sudo make && sudo cp wrk /usr/local/bin

@@ -42,25 +42,22 @@ RocksDBStorage::RocksDBStorage(const std::string& db_path) {
 
 RocksDBStorage::~RocksDBStorage() {
     if (db_raw_) {
-        // Flush before closing to ensure all data is persisted
         rocksdb::FlushOptions flush_options;
         flush_options.wait = true;
         db_raw_->Flush(flush_options);
 
         delete db_raw_;
         db_raw_ = nullptr;
-        LOG_INFO("[ROCKSDB] Database closed.");
     }
 }
 
 bool RocksDBStorage::put(const std::string& key, const SecretEntry& entry) {
     if (!db_open_ || !db_raw_) {
-        LOG_ERROR("[ROCKSDB] PUT failed: database not open.");
         return false;
     }
 
-    std::string value = serialize(entry);
-    rocksdb::Status status = db_raw_->Put(write_opts_, key, value);
+    std::string serialized_value = serialize(entry);
+    rocksdb::Status status = db_raw_->Put(write_opts_, key, serialized_value);
 
     if (!status.ok()) {
         LOG_ERROR("[ROCKSDB] PUT failed for key '" + key + "': " + status.ToString());
@@ -72,12 +69,11 @@ bool RocksDBStorage::put(const std::string& key, const SecretEntry& entry) {
 
 std::optional<SecretEntry> RocksDBStorage::get(const std::string& key) const {
     if (!db_open_ || !db_raw_) {
-        LOG_ERROR("[ROCKSDB] GET failed: database not open.");
         return std::nullopt;
     }
 
-    std::string value;
-    rocksdb::Status status = db_raw_->Get(read_opts_, key, &value);
+    std::string raw_value;
+    rocksdb::Status status = db_raw_->Get(read_opts_, key, &raw_value);
 
     if (status.IsNotFound()) {
         return std::nullopt;
@@ -89,7 +85,7 @@ std::optional<SecretEntry> RocksDBStorage::get(const std::string& key) const {
     }
 
     try {
-        return deserialize(value);
+        return deserialize(raw_value);
     } catch (const std::exception& e) {
         LOG_ERROR("[ROCKSDB] Deserialize failed for key '" + key + "': " + e.what());
         return std::nullopt;
@@ -98,7 +94,6 @@ std::optional<SecretEntry> RocksDBStorage::get(const std::string& key) const {
 
 bool RocksDBStorage::del(const std::string& key) {
     if (!db_open_ || !db_raw_) {
-        LOG_ERROR("[ROCKSDB] DEL failed: database not open.");
         return false;
     }
 
@@ -136,7 +131,9 @@ void RocksDBStorage::iterate_all(std::function<void(const SecretEntry&)> callbac
 }
 
 void RocksDBStorage::flush() {
-    if (!db_open_ || !db_raw_) return;
+    if (!db_open_ || !db_raw_) { 
+		return;
+	}
 
     rocksdb::FlushOptions flush_opts;
     flush_opts.wait = true;

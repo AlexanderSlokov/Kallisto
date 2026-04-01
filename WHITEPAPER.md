@@ -164,7 +164,7 @@ A secret management system does not only store secrets in RAM but also needs to 
 
 Example 1, if `PUT /prod/payment`:
 1.  The system runs from the root.
-2.  If the root is full, call `split_child` to split root -> Tree height increases by 1.
+2.  If the root is full, call `splitChild` to split root -> Tree height increases by 1.
 3.  Find the appropriate child branch (greater than/less than key).
 4.  Recursively down (Insert Non-Full).
 
@@ -231,7 +231,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
     std::string current_key = key;
     SecretEntry current_entry = entry;
 
-    for (int i = 0; i < max_displacements; ++i) {
+    for (int i = 0; i < max_displacements_; ++i) {
         // [PHASE 1] Try to insert into Table 1
         size_t h1 = hash_1(current_key);
         if (!table_1[h1].occupied) {
@@ -255,7 +255,7 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
         std::swap(current_entry, table_2[h2].entry);
     }
 
-    // If looped too many times (reach max_displacements) without finding a slot -> Resize
+    // If looped too many times (reach max_displacements_) without finding a slot -> Resize
     return false; 
 }
 ```
@@ -273,7 +273,7 @@ Kallisto uses B-Tree (not Binary Tree) to manage the list of paths (Path Index).
 The most difficult part of B-Tree is when a Node is full, it must split into two and push the middle key up to the parent. This is the code that handles this (`src/btree_index.cpp`):
 
 ```cpp
-void BTreeIndex::split_child(Node* parent, int i, Node* child) {
+void BTreeIndex::splitChild(Node* parent, int i, Node* child) {
     // 1. Tạo node mới 'z' chứa nửa sau của 'child'
     auto z = std::make_unique<Node>(child->is_leaf);
     
@@ -477,7 +477,7 @@ Kallisto has evolved from a CLI tool to a high-performance server using an **Env
 Instead of a traditional "Acceptor Thread -> Worker Thread Pool" model (which suffers from lock contention on the accept queue), Kallisto uses the **Thread-per-Core** model:
 
 1.  **Independent Workers**: The server spawns $N$ worker threads (default: number of CPU cores).
-2.  **Shared Port**: All workers bind to the **same port** (8200 for HTTP, 8201 for gRPC) using the `SO_REUSEPORT` socket option.
+2.  **Shared Port**: All workers bind to the **same port** (8200 for HTTP API) using the `SO_REUSEPORT` socket option.
 3.  **Kernel Load Balancing**: The Linux kernel distributes incoming TCP connections across these workers based on a 4-tuple hash. This eliminates the user-space bottleneck of a single acceptor.
 
 ### 6.5.2. Unified Event Loop
@@ -485,7 +485,7 @@ Instead of a traditional "Acceptor Thread -> Worker Thread Pool" model (which su
 Each worker runs its own `epoll`-based event loop (`Dispatcher`), handling:
 
 -   **HTTP Traffic**: Direct socket manipulation, parsing HTTP/1.1 requests (Vault KV v2 format), and sending JSON responses using `simdjson`.
--   **gRPC Traffic**: Integrating gRPC's `CompletionQueue` into the event loop via a non-blocking poll timer (1ms interval). This allows a single thread to handle both REST and gRPC traffic without context switching.
+
 
 ### 6.5.3. Sharded Storage Engine
 
@@ -508,7 +508,7 @@ O(L) where L is the length of the input string. SipHash processes the input in 8
 
 - **Lookup (GET)**: O(1) Worst Case. The algorithm checks exactly 2 locations: `T1[h1(x)]` and `T2[h2(x)]`. It never scans a list or probes deeper. This is the main selling point over Chaining (O(N) worst case) or Linear Probing (O(N) worst case under high load).
 
-- **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `MAX_DISPLACEMENTS`. Rehash (if table is full) takes O(N), but happens very rarely.
+- **Insertion (PUT)**: O(1) guaranteed. In most cases, insertion finds an empty slot immediately (O(1)). If a "kick-out" chain reaction occurs, it might take several steps, but it is bounded by `max_displacements_`. Rehash (if table is full) takes O(N), but happens very rarely.
 
 ### 7.1.3. B-Tree (Path Validation)
 
@@ -676,20 +676,7 @@ The user might notice a significant difference between the **Application Layer**
     -   **JSON Parsing**: Converting `{"key":"value"}` strings to C++ objects and back is CPU-intensive.
     -   *In-Memory Benchmark* calls C++ functions directly (Zero-Copy), bypassing all parsing.
 
-**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service. Using **gRPC (Protobuf)** or **HTTP/2** would likely double or triple this throughput (to ~150k-300k RPS) by using binary framing.
-
-### 8.5.2 gRPC Benchmark (Preliminary)
-
-We performed a preliminary benchmark of the **gRPC API** using a custom C++ client (`bench_grpc`).
-
-| Metric | Result | Note |
-| :--- | :--- | :--- |
-| **RPS** | ~3,587 req/s | Single-Threaded Client |
-| **Latency** | ~9-14 ms | High due to Polling Model |
-
-**Bottleneck Analysis**:
-Unlike the HTTP/1.1 Server which uses **Native Epoll** (Event-Driven) on 4 threads, the current gRPC implementation uses a **1ms Polling Timer** on a single thread to check the `CompletionQueue`. This integration strategy ("Sidecar Polling") introduces significant latency and limits throughput to the polling frequency.
-*Recommendation*: For production gRPC performance (100k+ RPS), we suggest moving to a **Thread-per-Core + dedicated CQ** model or using gRPC's `ExternalEventLoop` (if available) to remove the polling tax.
+**Conclusion**: The core Cuckoo engine is extremely fast (2.7M/s). The bottleneck shifts to the *Transport Layer* (HTTP/JSON) when exposing it as a service.
 
 ## 8.6. Conclusion
 

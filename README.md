@@ -16,13 +16,13 @@ Kallisto is a high-performance secret management engine built with C++20. It pro
 
 # HOW TO USE
 
-Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for interactive local usage, and a **Server mode** with HTTP + gRPC APIs for production deployment.
+Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for interactive local usage, and a **Server mode** with HTTP APIs for production deployment.
 
 ## Prerequisites
 
 - **C++20 compiler** (GCC 13+ or Clang 16+)
 - **CMake** 3.20+
-- **vcpkg** (only for Server mode — provides gRPC, Protobuf, RocksDB, simdjson)
+- **vcpkg** (only for Server mode — provides RocksDB, simdjson)
 
 ## Building
 
@@ -32,7 +32,7 @@ Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for int
 make build
 ```
 
-### Server Build (HTTP + gRPC — requires vcpkg)
+### Server Build (HTTP — requires vcpkg)
 
 First time compiling, it will take a while to install dependencies with vcpkg (~30 min, and will use cache after first run)
 
@@ -53,7 +53,6 @@ You don't even need to build anything. Just pull the image and run the server in
 docker run -d \
   --name kallisto \
   -p 8200:8200 \
-  -p 8201:8201 \
   -v my-kallisto-data:/data/kallisto/rocksdb \
   ghcr.io/alexanderslokov/kallisto:latest
 ```
@@ -115,7 +114,7 @@ make run-server
 Or with custom options:
 
 ```bash
-./build/kallisto_server --http-port=8200 --grpc-port=8201 --workers=8
+./build/kallisto_server --http-port=8200 --workers=8
 ```
 
 ### Server CLI Options
@@ -123,7 +122,6 @@ Or with custom options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--http-port=PORT` | `8200` | HTTP API port (Vault-compatible) |
-| `--grpc-port=PORT` | `8201` | gRPC API port |
 | `--workers=N` | CPU cores | Number of worker threads |
 | `--db-path=PATH` | `/data/kallisto/rocksdb` | RocksDB data directory |
 | `--help`, `-h` | — | Show help |
@@ -134,7 +132,6 @@ Or with custom options:
 ========================================
   Kallisto Secret Server v0.1.0
   HTTP port:  8200
-  gRPC port:  8201
   Workers:    8
 ========================================
 [SERVER] Kallisto is READY. Accepting connections.
@@ -207,50 +204,14 @@ Response:
 | `405` | Method not allowed |
 | `500` | Internal error |
 
-## gRPC API
 
-Kallisto exposes a `SecretService` on port **8201** with gRPC reflection enabled (inspectable with `grpcurl`).
-
-### Service Definition
-
-```protobuf
-service SecretService {
-  rpc Get(GetRequest) returns (GetResponse);
-  rpc Put(PutRequest) returns (PutResponse);
-  rpc Delete(DeleteRequest) returns (DeleteResponse);
-  rpc List(ListRequest) returns (ListResponse);
-}
-```
-
-### Example with grpcurl
-
-```bash
-# List available services
-grpcurl -plaintext localhost:8201 list
-
-# Store a secret
-grpcurl -plaintext -d '{"path":"myapp/db-pass","value":"c2VjcmV0"}' \
-  localhost:8201 kallisto.SecretService/Put
-
-# Retrieve a secret
-grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
-  localhost:8201 kallisto.SecretService/Get
-
-# List all secrets
-grpcurl -plaintext -d '{"prefix":"myapp/","limit":10}' \
-  localhost:8201 kallisto.SecretService/List
-
-# Delete a secret
-grpcurl -plaintext -d '{"path":"myapp/db-pass"}' \
-  localhost:8201 kallisto.SecretService/Delete
-```
 
 ## Makefile Targets
 
 | Target | Description |
 |--------|-------------|
 | `make build` | Build core (CLI only) |
-| `make build-server` | Build with gRPC/HTTP + RocksDB |
+| `make build-server` | Build with HTTP + RocksDB |
 | `make run` | Start interactive CLI |
 | `make run-server` | Start the Kallisto server |
 | `make test` | Run unit tests |
@@ -402,14 +363,14 @@ make test-persistence      # Correctness: CRUD + crash recovery
 │  │    │     │  │    │     │  │    │     │                   │
 │  │ ┌──┴───┐ │  │ ┌──┴───┐ │  │ ┌──┴───┐ │                   │
 │  │ │HTTP/ │ │  │ │HTTP/ │ │  │ │HTTP/ │ │ (Protocol parsing)│
-│  │ │gRPC  │ │  │ │gRPC  │ │  │ │gRPC  │ │                   │
+│  │ │REST  │ │  │ │REST  │ │  │ │REST  │ │                   │
 │  │ └──────┘ │  │ └──────┘ │  │ └──────┘ │                   │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘                   │
 │       │             │             │                         │
 │       └─────────────┼─────────────┘    (SO_REUSEPORT)       │
 │                     ▼                                       │
 │          ┌──────────────────────┐                           │
-│          │    KallistoEngine    │                           │
+│          │     KallistoCore     │                           │
 │          │   (The One True Core)│                           │
 │          └──────────┬───────────┘                           │
 │                     │ Validation                            │
@@ -422,5 +383,5 @@ make test-persistence      # Correctness: CRUD + crash recovery
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly. Protocol-agnostic network handlers simply delegate all actions to the thread-safe `KallistoEngine`.
+Each worker is independent — zero network lock contention, zero context switching. The kernel's `SO_REUSEPORT` distributes incoming connections evenly. Protocol-agnostic network handlers simply delegate all actions to the thread-safe `KallistoCore`.
 The inner layers (B-Tree, CuckooTable, RocksDB) are strictly encapsulated. Hit data is instantly fetched from the concurrent `ShardedCuckooTable` (64 shards lock-free lookup), while persisting writes crash-safely to `RocksDBStorage` (WAL). Administrative commands (like changing persistence modes or forcing flushes) are routed entirely out-of-band via an OS-level Unix Domain Socket.

@@ -146,13 +146,16 @@ bool testMultiWorkerAccept() {
     
     // Count accepted connections per worker
     std::vector<std::atomic<int>> accept_counts(num_workers);
-    for (auto& c : accept_counts) c.store(0);
+    for (auto& c : accept_counts) {
+        c.store(0);
+    }
     
     std::atomic<bool> stop_workers{false};
     
     // Start worker threads
     std::vector<std::thread> workers;
-    for (int i = 0; i < num_workers; i++) {
+    workers.reserve(num_workers);
+for (int i = 0; i < num_workers; i++) {
         workers.emplace_back([&, i]() {
             while (!stop_workers.load()) {
                 int client_fd = net::Listener::acceptConnection(listen_fds[i], nullptr);
@@ -182,7 +185,9 @@ bool testMultiWorkerAccept() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     stop_workers.store(true);
     
-    for (auto& t : workers) t.join();
+    for (auto& t : workers) { 
+		t.join();
+	}
     
     // Count total accepted
     int total = 0;

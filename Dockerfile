@@ -59,9 +59,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install gcovr --break-system-packages
 
-# Install ghz for gRPC benchmarking
-RUN curl -sSL https://github.com/bojand/ghz/releases/download/v0.120.0/ghz-linux-x86_64.tar.gz | tar -xz -C /usr/local/bin ghz
-
 # Add non-root user for running tests securely
 RUN useradd -m -s /bin/bash kallisto
 
@@ -107,8 +104,7 @@ RUN chmod +x /app/entrypoint.sh \
 # Run as non-root user
 USER kallisto
 
-# Expose HTTP (8200) and gRPC (8201)
+# Expose HTTP (8200)
 EXPOSE 8200
-EXPOSE 8201
 
 ENTRYPOINT ["/app/entrypoint.sh"]
