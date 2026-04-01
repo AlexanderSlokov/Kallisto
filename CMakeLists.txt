@@ -54,7 +54,7 @@ else()
 endif()
 
 # Main Executable
-add_executable(kallisto src/main.cpp)
+add_executable(kallisto src/cli.cpp)
 target_link_libraries(kallisto kallisto_lib)
 
 # ==============================================================================

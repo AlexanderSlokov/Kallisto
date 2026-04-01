@@ -22,7 +22,7 @@
 
 // Include the CLI source in test mode (disables main())
 #define KALLISTO_CLI_TEST_MODE
-#include "main.cpp"
+#include "cli.cpp"
 
 // ---------------------------------------------------------------------------
 // 1. Command Building from CLI Arguments
