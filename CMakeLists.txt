@@ -63,10 +63,15 @@ target_link_libraries(kallisto kallisto_lib)
 enable_testing()
 find_package(GTest CONFIG REQUIRED)
 
-# Legacy / Custom Tests
+# CLI Tests
 add_executable(kallisto_test src/test_main.cpp)
 target_link_libraries(kallisto_test PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
-add_test(NAME CoreTest COMMAND kallisto_test)
+add_test(NAME CliTest COMMAND kallisto_test)
+
+# CuckooTable Tests
+add_executable(test_cuckoo_table src/test_cuckoo_table.cpp)
+target_link_libraries(test_cuckoo_table PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME CuckooTableTest COMMAND test_cuckoo_table)
 
 add_executable(test_rocksdb src/test_rocksdb_storage.cpp)
 target_link_libraries(test_rocksdb PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
