@@ -12,8 +12,8 @@ ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
   size_t buckets_per_shard = items_per_shard / slots_per_bucket;
 
   // Ensure minimum bucket count to maintain hash performance and avoid excessive collisions.
-  constexpr size_t MIN_BUCKETS_PER_SHARD = 64;
-  buckets_per_shard = std::max(buckets_per_shard, MIN_BUCKETS_PER_SHARD);
+  constexpr size_t min_buckets_per_shard = 64;
+  buckets_per_shard = std::max(buckets_per_shard, min_buckets_per_shard);
 
   info("ShardedCuckooTable: Creating " + std::to_string(NUM_SHARDS) + " shards, " +
        std::to_string(buckets_per_shard) + " buckets for each shard, and " +

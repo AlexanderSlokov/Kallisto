@@ -1,45 +1,48 @@
 #include <gtest/gtest.h>
-#include <thread>
-#include <vector>
-#include <string>
+
 #include "kallisto/btree_index.hpp"
 #include "kallisto/tls_btree_manager.hpp"
-#include "kallisto/event/worker.hpp"
-#include "kallisto/event/dispatcher.hpp"
 
-// =========================================================================================
-// BTREE INDEX TESTS (Standalone)
-// =========================================================================================
+#include <string>
+#include <thread>
+
+// =============================================================================
+// BTREE INDEX TEST SUITE
+//
+// Problem Description:
+//   BTreeIndex is the path validator for Kallisto. Before a secret lookup
+//   hits the CuckooTable, the path must exist in the B-Tree. Corruption
+//   here causes silent lookup failures or allows unauthorized path access.
+//
+// Coverage:
+//   1. Basic insertion and validation
+//   2. Duplicate insertion idempotency
+//   3. High-volume splitting (100+ paths force root splits)
+//   4. Boundary values (empty string, very long paths)
+//   5. Deep copy correctness (RCU depends on this)
+// =============================================================================
 
 class BTreeIndexTest : public ::testing::Test {
 protected:
-    kallisto::BTreeIndex btree{3}; // t=3
+    kallisto::BTreeIndex btree{3}; // min_degree = 3
 };
 
 TEST_F(BTreeIndexTest, BasicInsertionAndValidation) {
-    // Scenario 1: Basic Insert
     EXPECT_TRUE(btree.insertPath("/api/v1/users"));
     EXPECT_TRUE(btree.insertPath("/api/v1/auth"));
 
-    // Scenario 2: Validate existing
     EXPECT_TRUE(btree.validatePath("/api/v1/users"));
     EXPECT_TRUE(btree.validatePath("/api/v1/auth"));
-
-    // Scenario 3: Validate missing
     EXPECT_FALSE(btree.validatePath("/api/v1/settings"));
 }
 
-TEST_F(BTreeIndexTest, DuplicateInsertion) {
+TEST_F(BTreeIndexTest, DuplicateInsertionIsIdempotent) {
     EXPECT_TRUE(btree.insertPath("/api/v1/duplicate"));
-    // BTreeIndex::insertPath currently returns 'true' even if the path already exists
-    // (it just returns early if search() is true). So we expect true.
-    EXPECT_TRUE(btree.insertPath("/api/v1/duplicate")) << "Should return true (no-op) on duplicate insert per current implementation";
+    EXPECT_TRUE(btree.insertPath("/api/v1/duplicate"));
     EXPECT_TRUE(btree.validatePath("/api/v1/duplicate"));
 }
 
 TEST_F(BTreeIndexTest, HighVolumeSplitting) {
-    // With degree t=3, nodes split quickly. 
-    // Inserting 100 sequential paths forces multiple root splits.
     for (int i = 0; i < 100; ++i) {
         btree.insertPath("/path/" + std::to_string(i));
     }
@@ -47,111 +50,155 @@ TEST_F(BTreeIndexTest, HighVolumeSplitting) {
     for (int i = 0; i < 100; ++i) {
         EXPECT_TRUE(btree.validatePath("/path/" + std::to_string(i)));
     }
-    
+
     EXPECT_FALSE(btree.validatePath("/path/100"));
 }
 
-// =========================================================================================
-// TLS BTREE MANAGER TESTS (Concurrency & RCU)
-// =========================================================================================
+TEST_F(BTreeIndexTest, EmptyStringPath) {
+    EXPECT_TRUE(btree.insertPath(""));
+    EXPECT_TRUE(btree.validatePath(""));
+}
 
-#include "kallisto/event/worker.hpp"
+TEST_F(BTreeIndexTest, VeryLongPath) {
+    std::string long_path(10000, '/');
+    EXPECT_TRUE(btree.insertPath(long_path));
+    EXPECT_TRUE(btree.validatePath(long_path));
+}
 
-class MockWorkerPool : public kallisto::event::WorkerPool {
-public:
-    MockWorkerPool(size_t size) : size_(size) {}
-    
-    void start(std::function<void()> on_all_ready) override { if (on_all_ready) on_all_ready(); }
-    void stop() override {}
-    size_t size() const override { return size_; }
-    kallisto::event::Worker& getWorker(size_t index) override { 
-        static kallisto::event::Worker* dummy = nullptr; 
-        return *dummy; 
-    }
-    uint64_t totalRequestsProcessed() const override { return 0; }
-    
-private:
-    size_t size_;
-};
+TEST_F(BTreeIndexTest, ValidateOnEmptyTreeReturnsFalse) {
+    EXPECT_FALSE(btree.validatePath("/anything"));
+}
+
+TEST_F(BTreeIndexTest, DeepCopyPreservesData) {
+    btree.insertPath("/original/path");
+
+    kallisto::BTreeIndex clone(btree);
+    EXPECT_TRUE(clone.validatePath("/original/path"));
+
+    // Mutating clone should NOT affect original
+    clone.insertPath("/clone/only");
+    EXPECT_TRUE(clone.validatePath("/clone/only"));
+    EXPECT_FALSE(btree.validatePath("/clone/only"));
+}
+
+TEST_F(BTreeIndexTest, DeepCopyDoesNotShareNodes) {
+    btree.insertPath("/shared/check");
+    kallisto::BTreeIndex clone(btree);
+
+    // Insert into original — clone must remain unchanged
+    btree.insertPath("/original/only");
+    EXPECT_FALSE(clone.validatePath("/original/only"));
+}
+
+// =============================================================================
+// TLS BTREE MANAGER TEST SUITE (RCU Concurrency)
+//
+// Problem Description:
+//   TlsBTreeManager implements Envoy-style RCU for lock-free reads.
+//   Each worker thread holds a thread-local snapshot. Writes create a
+//   new master copy and dispatch it to all workers. Old copies go to
+//   a GC queue for deferred deallocation.
+//
+// Coverage:
+//   1. Initial snapshot is valid
+//   2. insertPathIfAbsent creates new snapshot, rejects duplicates
+//   3. Old snapshots remain immutable (RCU guarantee)
+//   4. GC drains old snapshots without crashing
+//   5. Thread safety under concurrent read/write
+//   6. Boundary: multiple rapid updates
+// =============================================================================
 
 class TlsBTreeManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // We use nullptr for workers to trigger the synchronous fallback in update()
-        // since we cannot easily mock the dispatcher's post() mechanism here without a running event loop.
-        manager = std::make_unique<kallisto::TlsBTreeManager>(3, nullptr);
+        // nullptr for workers triggers synchronous fallback (no event loop needed)
+        manager_ = std::make_unique<kallisto::TlsBTreeManager>(3, nullptr);
     }
 
     void TearDown() override {
-        manager->drain_garbage();
+        manager_->drainGarbage();
     }
 
-    std::unique_ptr<kallisto::TlsBTreeManager> manager;
+    std::unique_ptr<kallisto::TlsBTreeManager> manager_;
 };
 
-TEST_F(TlsBTreeManagerTest, InitialSnapshot) {
-    auto local_btree = manager->get_local();
-    EXPECT_NE(local_btree, nullptr);
-    EXPECT_FALSE(local_btree->validatePath("/missing/path"));
+TEST_F(TlsBTreeManagerTest, InitialSnapshotIsValid) {
+    auto snapshot = manager_->getLocalSnapshot();
+    EXPECT_NE(snapshot, nullptr);
+    EXPECT_FALSE(snapshot->validatePath("/missing/path"));
 }
 
-TEST_F(TlsBTreeManagerTest, UpdateCreatesNewSnapshot) {
-    auto old_snapshot = manager->get_local();
-    
-    EXPECT_TRUE(manager->update("/new/path"));
-    
-    // Updating again should return false
-    EXPECT_FALSE(manager->update("/new/path"));
+TEST_F(TlsBTreeManagerTest, InsertPathCreatesNewSnapshot) {
+    auto old_snapshot = manager_->getLocalSnapshot();
 
+    EXPECT_TRUE(manager_->insertPathIfAbsent("/new/path"));
+
+    auto new_snapshot = manager_->getLocalSnapshot();
+    EXPECT_TRUE(new_snapshot->validatePath("/new/path"));
+
+    // Old snapshot must NOT contain the new path (RCU immutability)
     EXPECT_FALSE(old_snapshot->validatePath("/new/path"));
 
-    auto new_snapshot = manager->get_local();
-    EXPECT_TRUE(new_snapshot->validatePath("/new/path"));
-    
+    // Pointers must differ (deep copy, not mutation)
     EXPECT_NE(old_snapshot.get(), new_snapshot.get());
 }
 
-TEST_F(TlsBTreeManagerTest, GarbageCollection) {
-    auto initial_snapshot = manager->get_local();
-
-    manager->update("/gc/path");
-
-    manager->drain_garbage();
-    
-    EXPECT_FALSE(initial_snapshot->validatePath("/gc/path")); 
+TEST_F(TlsBTreeManagerTest, DuplicateInsertReturnsFalse) {
+    EXPECT_TRUE(manager_->insertPathIfAbsent("/dup/path"));
+    EXPECT_FALSE(manager_->insertPathIfAbsent("/dup/path"));
 }
 
-TEST_F(TlsBTreeManagerTest, ThreadSafety) {
-    constexpr int NUM_ITERATIONS = 1000;
-    
+TEST_F(TlsBTreeManagerTest, GarbageCollectionDrainsWithoutCrash) {
+    manager_->insertPathIfAbsent("/gc/path/1");
+    manager_->insertPathIfAbsent("/gc/path/2");
+    manager_->insertPathIfAbsent("/gc/path/3");
+
+    EXPECT_NO_THROW(manager_->drainGarbage());
+
+    // Data should still be accessible after GC
+    auto snapshot = manager_->getLocalSnapshot();
+    EXPECT_TRUE(snapshot->validatePath("/gc/path/1"));
+    EXPECT_TRUE(snapshot->validatePath("/gc/path/3"));
+}
+
+TEST_F(TlsBTreeManagerTest, MultipleRapidUpdates) {
+    for (int i = 0; i < 500; ++i) {
+        manager_->insertPathIfAbsent("/rapid/" + std::to_string(i));
+    }
+
+    auto snapshot = manager_->getLocalSnapshot();
+    for (int i = 0; i < 500; ++i) {
+        EXPECT_TRUE(snapshot->validatePath("/rapid/" + std::to_string(i)));
+    }
+}
+
+TEST_F(TlsBTreeManagerTest, ConcurrentReadersAndWriter) {
+    // Problem: One writer thread inserts paths while reader threads
+    // simultaneously fetch snapshots. Must not crash, deadlock, or
+    // corrupt the B-Tree state.
+    constexpr int num_iterations = 1000;
+
     auto writer_thread = std::thread([this]() {
-        for (int i = 0; i < NUM_ITERATIONS; ++i) {
-            manager->update("/thread/safe/" + std::to_string(i));
+        for (int i = 0; i < num_iterations; ++i) {
+            manager_->insertPathIfAbsent("/thread/safe/" + std::to_string(i));
         }
     });
 
     auto reader_thread = std::thread([this]() {
-        for (int i = 0; i < NUM_ITERATIONS; ++i) {
-            auto local = manager->get_local();
-            // In a real scenario without an event loop pushing to tls_btree_,
-            // secondary threads will constantly fallback to pulling the master_btree_ lock.
-            // This is safe but not entirely lock-free as designed for Worker threads.
-            local->validatePath("/thread/safe/" + std::to_string(i)); 
+        for (int i = 0; i < num_iterations; ++i) {
+            auto snapshot = manager_->getLocalSnapshot();
+            snapshot->validatePath("/thread/safe/" + std::to_string(i));
         }
     });
 
     writer_thread.join();
     reader_thread.join();
 
-    // Verify all contents ultimately populated to the master
-    // We must ensure the main thread gets the latest snapshot.
-    // Calling get_local() directly here might fetch an older thread_local snapshot 
-    // unless we explicitly force a master sync.
-    // A trick is to fetch it from a fresh thread or force an update that does nothing.
-    manager->update("/dummy/force/sync"); // Forces master sync to thread_local
-    auto final_snapshot = manager->get_local();
-    
-    for (int i = 0; i < NUM_ITERATIONS; ++i) {
+    // Force master sync to this thread's TLS
+    manager_->insertPathIfAbsent("/dummy/force/sync");
+    auto final_snapshot = manager_->getLocalSnapshot();
+
+    for (int i = 0; i < num_iterations; ++i) {
         EXPECT_TRUE(final_snapshot->validatePath("/thread/safe/" + std::to_string(i)));
     }
 }

@@ -59,14 +59,15 @@ TEST_F(ShardedCuckooTableTest, ParallelIsolation) {
     // Simulate parallel writes across completely distinct keys
     // ShardedCuckoo should have near-zero lock contention here unlike standard Cuckoo.
     
-    constexpr int NUM_THREADS = 8;
-    constexpr int OPS_PER_THREAD = 1000;
+    constexpr int num_threads = 8;
+    constexpr int ops_per_thread = 1000;
     std::vector<std::thread> threads;
     std::atomic<int> success_count{0};
 
-    for (int t = 0; t < NUM_THREADS; ++t) {
-        threads.emplace_back([this, t, OPS_PER_THREAD, &success_count]() {
-            for (int i = 0; i < OPS_PER_THREAD; ++i) {
+    threads.reserve(num_threads);
+    for (int t = 0; t < num_threads; ++t) {
+        threads.emplace_back([this, t, ops_per_thread, &success_count]() {
+            for (int i = 0; i < ops_per_thread; ++i) {
                 kallisto::SecretEntry e;
                 e.key = "thread_" + std::to_string(t) + "_key_" + std::to_string(i);
                 e.value = "val";
@@ -81,7 +82,7 @@ TEST_F(ShardedCuckooTableTest, ParallelIsolation) {
         t.join();
     }
 
-    EXPECT_EQ(success_count.load(), NUM_THREADS * OPS_PER_THREAD);
+    EXPECT_EQ(success_count.load(), num_threads * ops_per_thread);
 
     // Verify presence randomly
     auto res = table.lookup("thread_0_key_500");

@@ -14,7 +14,7 @@ KallistoCore::KallistoCore(const std::string& db_path) {
 
     // Rebuild B-Tree index from WAL (RocksDB)
     rocksdb_persistence_->iterate_all([this](const SecretEntry& entry) {
-        path_index_->update(entry.path);
+        path_index_->insertPathIfAbsent(entry.path);
     });
 }
 
@@ -59,7 +59,7 @@ bool KallistoCore::put(const std::string& path, const std::string& key, const st
     storage_->insert(full_key, entry);
 
     // 4. Update B-Tree logic
-    path_index_->update(path);
+    path_index_->insertPathIfAbsent(path);
 
     return true;
 }
@@ -120,7 +120,7 @@ void KallistoCore::check_and_sync() {
 
 void KallistoCore::rebuild_indices(const std::vector<SecretEntry>& secrets) {
     for (const auto& s : secrets) {
-        path_index_->update(s.path);
+        path_index_->insertPathIfAbsent(s.path);
     }
 }
 
