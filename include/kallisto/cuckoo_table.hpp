@@ -73,16 +73,16 @@ private:
   static constexpr int buckets_per_cache_line = 1; // 64 bytes / 64 bytes
   static constexpr int slots_per_bucket = 8;
 
-  std::vector<Bucket> table_1;
-  std::vector<Bucket> table_2;
+  std::vector<Bucket> table_1_;
+  std::vector<Bucket> table_2_;
 
   // Storage Pool (Arena)
   // Concept: Instead of scattering SecretEntry objects in heap (via pointers),
   // we store them contiguously in a vector. Buckets hold 32-bit indices to this vector.
-  std::vector<SecretEntry> storage;
+  std::vector<SecretEntry> storage_;
 
   // Memory Management
-  std::vector<uint32_t> free_list; // Stack (LIFO) for recycled indices
+  std::vector<uint32_t> free_list_; // Stack (LIFO) for recycled indices
   uint32_t next_free_index_ = 0;   // High-water mark for new allocations
 
   // Concurrency & Stats
@@ -94,7 +94,7 @@ private:
   std::atomic<size_t> shadow_storage_size_{0};
   std::atomic<size_t> shadow_free_list_size_{0};
 
-  size_t capacity;                    // Number of buckets per table
+  size_t capacity_;                    // Number of buckets per table
   const int max_displacements_ = 256; // Increased due to higher load factor capability
 
   // Hash helpers return full 64-bit for Tag extraction

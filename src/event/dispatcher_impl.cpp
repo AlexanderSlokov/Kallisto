@@ -268,8 +268,8 @@ private:
     {
       std::lock_guard<std::mutex> lock(post_mutex_);
       if (post_queue_.empty()) {
-		return;
-	  }
+        return;
+      }
       
       // Swap is O(1) and minimizes the time we hold the mutex lock
       std::swap(tasks_to_run, post_queue_);

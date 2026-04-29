@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <netinet/in.h>
 
 namespace kallisto {

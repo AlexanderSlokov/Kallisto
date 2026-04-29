@@ -6,18 +6,18 @@
 
 namespace kallisto {
 
-CuckooTable::CuckooTable(size_t size, size_t initial_capacity) : capacity(size) {
-  table_1.resize(capacity);
-  table_2.resize(capacity);
+CuckooTable::CuckooTable(size_t size, size_t initial_capacity) : capacity_(size) {
+  table_1_.resize(capacity_);
+  table_2_.resize(capacity_);
 
   // Initialize buckets with invalid_index
-  for (auto& bucket : table_1) {
+  for (auto& bucket : table_1_) {
     for (auto& slot : bucket.slots) {
       slot.index = invalid_index;
       slot.tag = 0;
     }
   }
-  for (auto& bucket : table_2) {
+  for (auto& bucket : table_2_) {
     for (auto& slot : bucket.slots) {
       slot.index = invalid_index;
       slot.tag = 0;
@@ -25,13 +25,13 @@ CuckooTable::CuckooTable(size_t size, size_t initial_capacity) : capacity(size) 
   }
 
   // Pre-allocate memory for entries
-  storage.reserve(initial_capacity);
-  free_list.reserve(initial_capacity / 10);
+  storage_.reserve(initial_capacity);
+  free_list_.reserve(initial_capacity / 10);
 
   // Initialize Atomic Shadows
-  shadow_storage_capacity_.store(storage.capacity(), std::memory_order_relaxed);
-  shadow_storage_size_.store(storage.size(), std::memory_order_relaxed);
-  shadow_free_list_size_.store(free_list.size(), std::memory_order_relaxed);
+  shadow_storage_capacity_.store(storage_.capacity(), std::memory_order_relaxed);
+  shadow_storage_size_.store(storage_.size(), std::memory_order_relaxed);
+  shadow_free_list_size_.store(free_list_.size(), std::memory_order_relaxed);
 }
 
 uint64_t CuckooTable::hash1Full(const std::string& key) const {
@@ -52,26 +52,26 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
   // 1. Check if key already exists (Update)
   uint64_t h1_raw = hash1Full(key);
   uint32_t tag = getTag(h1_raw);
-  size_t idx1 = h1_raw % capacity;
+  size_t idx1 = h1_raw % capacity_;
 
-  for (const auto& slot : table_1[idx1].slots) {
+  for (const auto& slot : table_1_[idx1].slots) {
     if (slot.index != invalid_index && slot.tag == tag) {
-      if (storage[slot.index].key == key) {
-        storage[slot.index] = entry; // Update in place
-        storage[slot.index].key = key;
+      if (storage_[slot.index].key == key) {
+        storage_[slot.index] = entry; // Update in place
+        storage_[slot.index].key = key;
         return true;
       }
     }
   }
 
   uint64_t h2_raw = hash2Full(key);
-  size_t idx2 = h2_raw % capacity;
+  size_t idx2 = h2_raw % capacity_;
 
-  for (const auto& slot : table_2[idx2].slots) {
+  for (const auto& slot : table_2_[idx2].slots) {
     if (slot.index != invalid_index) {
-      if (slot.tag == tag && storage[slot.index].key == key) {
-        storage[slot.index] = entry;
-        storage[slot.index].key = key;
+      if (slot.tag == tag && storage_[slot.index].key == key) {
+        storage_[slot.index] = entry;
+        storage_[slot.index].key = key;
         return true;
       }
     }
@@ -79,22 +79,22 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 
   // 2. Insert new entry
   uint32_t new_storage_idx;
-  if (!free_list.empty()) {
-    new_storage_idx = free_list.back();
-    free_list.pop_back();
-    shadow_free_list_size_.store(free_list.size(), std::memory_order_relaxed); // Shadow Update
+  if (!free_list_.empty()) {
+    new_storage_idx = free_list_.back();
+    free_list_.pop_back();
+    shadow_free_list_size_.store(free_list_.size(), std::memory_order_relaxed); // Shadow Update
 
-    storage[new_storage_idx] = entry;
-    storage[new_storage_idx].key = key;
+    storage_[new_storage_idx] = entry;
+    storage_[new_storage_idx].key = key;
   } else {
     SecretEntry e = entry;
     e.key = key;
-    storage.push_back(e);
-    new_storage_idx = static_cast<uint32_t>(storage.size() - 1);
+    storage_.push_back(e);
+    new_storage_idx = static_cast<uint32_t>(storage_.size() - 1);
 
     // Shadow Update (Potentially reallocated)
-    shadow_storage_capacity_.store(storage.capacity(), std::memory_order_relaxed);
-    shadow_storage_size_.store(storage.size(), std::memory_order_relaxed);
+    shadow_storage_capacity_.store(storage_.capacity(), std::memory_order_relaxed);
+    shadow_storage_size_.store(storage_.size(), std::memory_order_relaxed);
   }
 
   uint32_t current_index = new_storage_idx;
@@ -103,11 +103,11 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
   // Attempt to insert
   for (int i = 0; i < max_displacements_; ++i) {
     // Try Table 1
-    const std::string& cur_key = storage[current_index].key;
+    const std::string& cur_key = storage_[current_index].key;
     uint64_t h1 = hash1Full(cur_key);
-    size_t b1 = h1 % capacity;
+    size_t b1 = h1 % capacity_;
 
-    for (auto& slot : table_1[b1].slots) {
+    for (auto& slot : table_1_[b1].slots) {
       if (slot.index == invalid_index) {
         slot.tag = current_tag;
         slot.index = current_index;
@@ -117,9 +117,9 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 
     // Try Table 2
     uint64_t h2 = hash2Full(cur_key);
-    size_t b2 = h2 % capacity;
+    size_t b2 = h2 % capacity_;
 
-    for (auto& slot : table_2[b2].slots) {
+    for (auto& slot : table_2_[b2].slots) {
       if (slot.index == invalid_index) {
         slot.tag = current_tag;
         slot.index = current_index;
@@ -129,8 +129,8 @@ bool CuckooTable::insert(const std::string& key, const SecretEntry& entry) {
 
     // Kick from Table 1
     int victim_slot = rand() % slots_per_bucket;
-    std::swap(current_tag, table_1[b1].slots[victim_slot].tag);
-    std::swap(current_index, table_1[b1].slots[victim_slot].index);
+    std::swap(current_tag, table_1_[b1].slots[victim_slot].tag);
+    std::swap(current_index, table_1_[b1].slots[victim_slot].index);
   }
 
   // Insert failed - FAIL FAST POLICY
@@ -150,23 +150,23 @@ std::optional<SecretEntry> CuckooTable::lookup(const std::string& key) const {
 
   uint64_t h1_raw = hash1Full(key);
   uint32_t tag = getTag(h1_raw);
-  size_t idx1 = h1_raw % capacity;
+  size_t idx1 = h1_raw % capacity_;
 
-  for (const auto& slot : table_1[idx1].slots) {
+  for (const auto& slot : table_1_[idx1].slots) {
     if (slot.index != invalid_index && slot.tag == tag) {
-      if (storage[slot.index].key == key) {
-        return storage[slot.index];
+      if (storage_[slot.index].key == key) {
+        return storage_[slot.index];
       }
     }
   }
 
   uint64_t h2_raw = hash2Full(key);
-  size_t idx2 = h2_raw % capacity;
+  size_t idx2 = h2_raw % capacity_;
 
-  for (const auto& slot : table_2[idx2].slots) {
+  for (const auto& slot : table_2_[idx2].slots) {
     if (slot.index != invalid_index && slot.tag == tag) {
-      if (storage[slot.index].key == key) {
-        return storage[slot.index];
+      if (storage_[slot.index].key == key) {
+        return storage_[slot.index];
       }
     }
   }
@@ -178,19 +178,19 @@ std::vector<SecretEntry> CuckooTable::getAllEntries() const {
   std::shared_lock<std::shared_mutex> lock(rw_lock_); // READER LOCK (Shared)
 
   std::vector<SecretEntry> all_secrets;
-  all_secrets.reserve(storage.size() - free_list.size());
+  all_secrets.reserve(storage_.size() - free_list_.size());
 
-  for (const auto& bucket : table_1) {
+  for (const auto& bucket : table_1_) {
     for (const auto& slot : bucket.slots) {
       if (slot.index != invalid_index) {
-        all_secrets.push_back(storage[slot.index]);
+        all_secrets.push_back(storage_[slot.index]);
       }
     }
   }
-  for (const auto& bucket : table_2) {
+  for (const auto& bucket : table_2_) {
     for (const auto& slot : bucket.slots) {
       if (slot.index != invalid_index) {
-        all_secrets.push_back(storage[slot.index]);
+        all_secrets.push_back(storage_[slot.index]);
       }
     }
   }
@@ -202,32 +202,32 @@ bool CuckooTable::remove(const std::string& key) {
 
   uint64_t h1_raw = hash1Full(key);
   uint32_t tag = getTag(h1_raw);
-  size_t idx1 = h1_raw % capacity;
+  size_t idx1 = h1_raw % capacity_;
 
-  for (auto& slot : table_1[idx1].slots) {
+  for (auto& slot : table_1_[idx1].slots) {
     if (slot.index != invalid_index && slot.tag == tag) {
-      if (storage[slot.index].key == key) {
+      if (storage_[slot.index].key == key) {
         uint32_t removed_index = slot.index;
         slot.index = invalid_index;
         slot.tag = 0;
-        free_list.push_back(removed_index);
-        shadow_free_list_size_.store(free_list.size(), std::memory_order_relaxed);
+        free_list_.push_back(removed_index);
+        shadow_free_list_size_.store(free_list_.size(), std::memory_order_relaxed);
         return true;
       }
     }
   }
 
   uint64_t h2_raw = hash2Full(key);
-  size_t idx2 = h2_raw % capacity;
+  size_t idx2 = h2_raw % capacity_;
 
-  for (auto& slot : table_2[idx2].slots) {
+  for (auto& slot : table_2_[idx2].slots) {
     if (slot.index != invalid_index && slot.tag == tag) {
-      if (storage[slot.index].key == key) {
+      if (storage_[slot.index].key == key) {
         uint32_t removed_index = slot.index;
         slot.index = invalid_index;
         slot.tag = 0;
-        free_list.push_back(removed_index);
-        shadow_free_list_size_.store(free_list.size(), std::memory_order_relaxed);
+        free_list_.push_back(removed_index);
+        shadow_free_list_size_.store(free_list_.size(), std::memory_order_relaxed);
         return true;
       }
     }
@@ -250,7 +250,7 @@ CuckooTable::MemoryStats CuckooTable::getMemoryStats() const {
   // No lock required!
 
   MemoryStats stats;
-  stats.bucket_count = capacity * 2;
+  stats.bucket_count = capacity_ * 2;
 
   // 1. Bucket Storage
   stats.bucket_memory_bytes = stats.bucket_count * sizeof(Bucket);

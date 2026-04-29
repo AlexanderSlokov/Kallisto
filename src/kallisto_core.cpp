@@ -10,10 +10,10 @@ KallistoCore::KallistoCore(const std::string& db_path) {
     rocksdb_persistence_ = std::make_unique<RocksDBStorage>(db_path);
 
     // Set initial sync mode to RocksDB
-    rocksdb_persistence_->set_sync(sync_mode_.load(std::memory_order_relaxed) == SyncMode::IMMEDIATE);
+    rocksdb_persistence_->setSync(sync_mode_.load(std::memory_order_relaxed) == SyncMode::IMMEDIATE);
 
     // Rebuild B-Tree index from WAL (RocksDB)
-    rocksdb_persistence_->iterate_all([this](const SecretEntry& entry) {
+    rocksdb_persistence_->iterateAll([this](const SecretEntry& entry) {
         path_index_->insertPathIfAbsent(entry.path);
     });
 }
@@ -100,7 +100,7 @@ bool KallistoCore::del(const std::string& path, const std::string& key) {
 void KallistoCore::changeSyncMode(SyncMode mode) {
     sync_mode_.store(mode, std::memory_order_relaxed);
     if (rocksdb_persistence_) {
-        rocksdb_persistence_->set_sync(mode == SyncMode::IMMEDIATE);
+        rocksdb_persistence_->setSync(mode == SyncMode::IMMEDIATE);
     }
 }
 

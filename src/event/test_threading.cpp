@@ -26,7 +26,7 @@ namespace kallisto {
 // =========================================================================================
 // DISPATCHER TESTS
 // =========================================================================================
-void test_dispatcher_basic() {
+void testDispatcherBasic() {
     std::cout << "\n--- Testing Dispatcher Basic ---\n";
     
     auto factory = kallisto::createDispatcherFactory();
@@ -59,7 +59,7 @@ void test_dispatcher_basic() {
     ASSERT_TRUE(exit_called.load(), "Exit should have been called");
 }
 
-void test_dispatcher_timer() {
+void testDispatcherTimer() {
     std::cout << "\n--- Testing Dispatcher Timer ---\n";
     
     auto factory = kallisto::createDispatcherFactory();
@@ -100,7 +100,7 @@ void test_dispatcher_timer() {
 // =========================================================================================
 // WORKER TESTS
 // =========================================================================================
-void test_worker_pool() {
+void testWorkerPool() {
     std::cout << "\n--- Testing Worker Pool ---\n";
     
     // Create pool with 2 workers
@@ -150,7 +150,7 @@ public:
     std::string thread_name;
 };
 
-void test_thread_local_storage() {
+void testThreadLocalStorage() {
     std::cout << "\n--- Testing Thread Local Storage ---\n";
     
     auto tls = kallisto::tls::createThreadLocalInstance();
@@ -185,10 +185,10 @@ int main() {
     kallisto::Logger::getInstance().setup(config);
     
     try {
-        test_dispatcher_basic();
-        test_dispatcher_timer();
-        test_worker_pool();
-        test_thread_local_storage();
+        testDispatcherBasic();
+        testDispatcherTimer();
+        testWorkerPool();
+        testThreadLocalStorage();
         
         std::cout << "\n============================================\n";
         std::cout << "   ALL THREADING TESTS PASSED 🚀\n";

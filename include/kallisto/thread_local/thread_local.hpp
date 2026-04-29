@@ -2,8 +2,6 @@
 
 #include <functional>
 #include <memory>
-#include <vector>
-#include <cstdint>
 
 namespace kallisto {
 
