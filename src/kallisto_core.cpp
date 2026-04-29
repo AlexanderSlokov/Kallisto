@@ -20,15 +20,15 @@ KallistoCore::KallistoCore(const std::string& db_path) {
 
 KallistoCore::~KallistoCore() {
     // Make sure we save before dying if batching
-    force_flush();
+    forceFlush();
 }
 
-std::string KallistoCore::build_full_key(const std::string& path, const std::string& key) const {
+std::string KallistoCore::buildFullKey(const std::string& path, const std::string& key) const {
     return path + ":" + key;
 }
 
 bool KallistoCore::put(const std::string& path, const std::string& key, const std::string& value, uint64_t ttl_secs) {
-    std::string full_key = build_full_key(path, key);
+    std::string full_key = buildFullKey(path, key);
 
     SecretEntry entry;
     entry.key = key;
@@ -50,7 +50,7 @@ bool KallistoCore::put(const std::string& path, const std::string& key, const st
             size_t current = ops + 1;
             // Only the thread that successfully resets it to 0 gets to trigger the flush call
             if (unsaved_ops_count_.compare_exchange_strong(current, 0, std::memory_order_relaxed)) {
-                force_flush();
+                forceFlush();
             }
         }
     }
@@ -65,7 +65,7 @@ bool KallistoCore::put(const std::string& path, const std::string& key, const st
 }
 
 std::optional<SecretEntry> KallistoCore::get(const std::string& path, const std::string& key) {
-    std::string full_key = build_full_key(path, key);
+    std::string full_key = buildFullKey(path, key);
 
     // 1. Search in Cache (RAM)
     auto cached = storage_->lookup(full_key);
@@ -86,7 +86,7 @@ std::optional<SecretEntry> KallistoCore::get(const std::string& path, const std:
 }
 
 bool KallistoCore::del(const std::string& path, const std::string& key) {
-    std::string full_key = build_full_key(path, key);
+    std::string full_key = buildFullKey(path, key);
     
     bool disk_ok = rocksdb_persistence_->del(full_key);
     if (!disk_ok) { 
@@ -97,28 +97,28 @@ bool KallistoCore::del(const std::string& path, const std::string& key) {
     return true; 
 }
 
-void KallistoCore::change_sync_mode(SyncMode mode) {
+void KallistoCore::changeSyncMode(SyncMode mode) {
     sync_mode_.store(mode, std::memory_order_relaxed);
     if (rocksdb_persistence_) {
         rocksdb_persistence_->set_sync(mode == SyncMode::IMMEDIATE);
     }
 }
 
-KallistoCore::SyncMode KallistoCore::get_sync_mode() const {
+KallistoCore::SyncMode KallistoCore::getSyncMode() const {
     return sync_mode_.load(std::memory_order_relaxed);
 }
 
-void KallistoCore::force_flush() {
+void KallistoCore::forceFlush() {
     if (rocksdb_persistence_) {
         rocksdb_persistence_->flush();
     }
 }
 
-void KallistoCore::check_and_sync() {
-    force_flush();
+void KallistoCore::checkAndSync() {
+    forceFlush();
 }
 
-void KallistoCore::rebuild_indices(const std::vector<SecretEntry>& secrets) {
+void KallistoCore::rebuildIndices(const std::vector<SecretEntry>& secrets) {
     for (const auto& s : secrets) {
         path_index_->insertPathIfAbsent(s.path);
     }

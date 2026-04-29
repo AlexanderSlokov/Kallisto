@@ -41,7 +41,7 @@
 
 - [x] CLI khởi tạo và bao bọc toàn bộ bằng class `KallistoServer` (src/kallisto.cpp). Server hoàn toàn bỏ sọt class `KallistoServer`. Trong kallisto_server.cpp đang tự khởi tạo lại các biến shared_ptr<ShardedCuckooTable> và shared_ptr<RocksDBStorage>, sau đó ném cho HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB tự bơi (Nó vĩnh viễn kẹt ở Batch Mode trần trụi nhất).
 
-- [x] CLI có biến đếm `unsaved_ops_count`, cấu hình `SyncMode::IMMEDIATE / BATCH` và tự động kích hoạt `check_and_sync()` để ép đĩa Flush. Server không hề biết những thứ đó tồn tại. HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB. Nó vĩnh viễn kẹt ở Batch Mode.
+- [x] CLI có biến đếm `unsaved_ops_count`, cấu hình `SyncMode::IMMEDIATE / BATCH` và tự động kích hoạt `forceFlush()` để ép đĩa Flush. Server không hề biết những thứ đó tồn tại. HttpHandler và GrpcHandler chỉ đơn thuần gọi `persistence_->put()`, phó mặc hoàn toàn cho cấu hình async mặc định của RocksDB. Nó vĩnh viễn kẹt ở Batch Mode.
 
 - [x] **Bỏ quên dữ liệu TTL (Time-To-Live)**: Khi nhập lệnh PUT trên CLI, `entry.ttl` được hardcode gán bằng 3600 (1 tiếng) (src/kallisto.cpp:71). Khi bắn request `POST /v1/secret/data/...` trên Server, `HttpHandler` và `GrpcHandler` chỉ gán key, value, created_at nhưng lại cố tình bỏ quên gán TTL, dẫn đến `entry.ttl` bị dính rác mặc định (uninitialized memory hoặc 0).
 
