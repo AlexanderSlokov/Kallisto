@@ -122,10 +122,15 @@ int main(int argc, char** argv) {
 
   std::string command = buildCommandFromArgs(argc, argv);
 
-  int sock_fd = connectToAdminSocket(default_socket_path);
+  const char* socket_path = std::getenv("KALLISTO_SOCKET");
+  if (!socket_path) {
+    socket_path = default_socket_path;
+  }
+
+  int sock_fd = connectToAdminSocket(socket_path);
   if (sock_fd < 0) {
     std::cerr << "Error: Failed to connect to Kallisto Admin Socket at "
-              << default_socket_path << ".\n"
+              << socket_path << ".\n"
               << "Is the server running? Do you have the correct privileges?\n";
     return 1;
   }

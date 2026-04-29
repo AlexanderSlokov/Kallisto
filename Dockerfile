@@ -56,11 +56,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wrk \
     curl \
+    iproute2 \
+    procps \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install gcovr --break-system-packages
 
 # Add non-root user for running tests securely
-RUN useradd -m -s /bin/bash kallisto
+RUN useradd -m -s /bin/bash kallisto \
+    && mkdir -p /data/kallisto/rocksdb \
+    && chown -R kallisto:kallisto /data/kallisto
 
 WORKDIR /app
 
