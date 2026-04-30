@@ -3,7 +3,7 @@
 --
 -- Usage: wrk -t2 -c10 -d3s -s bench/wrk_seed.lua http://localhost:8200
 
-counter = 0
+counter = -1
 
 wrk.method = "POST"
 wrk.headers["Content-Type"] = "application/json"

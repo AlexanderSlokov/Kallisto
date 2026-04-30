@@ -104,14 +104,24 @@ void HttpHandler::onReadable(int fd) {
         }
     }
     
-    auto req = parseRequest(conn.read_buffer);
-    if (req.valid) {
+    // Process all complete requests in the buffer (HTTP pipelining support).
+    // TCP may coalesce multiple HTTP requests into a single recv() call.
+    // We must parse and handle each one, erasing only the consumed bytes.
+    while (!conn.read_buffer.empty()) {
+        auto req = parseRequest(conn.read_buffer);
+        if (!req.valid) {
+            break;  // Incomplete request — wait for more data
+        }
+        
         handleRequest(conn, req);
-        // closeConnection may have destroyed conn (keep_alive=false). Check before accessing.
+        
+        // Connection may have been closed by handleRequest (keep_alive=false)
         if (connections_.find(fd) == connections_.end()) {
-			return;
-		}
-        connections_[fd]->read_buffer.clear();
+            return;
+        }
+        
+        // Erase only the bytes consumed by this request
+        conn.read_buffer.erase(0, req.bytes_consumed);
     }
 }
 
@@ -233,6 +243,9 @@ HttpHandler::HttpRequest HttpHandler::parseRequest(const std::string& buffer) {
             return req;  // Incomplete body
         }
         req.body = buffer.substr(body_start, req.content_length);
+        req.bytes_consumed = body_start + req.content_length;
+    } else {
+        req.bytes_consumed = body_start;
     }
     
     req.valid = true;

@@ -62,6 +62,7 @@ private:
         std::string path;
         std::string body;
         int content_length{0};
+        size_t bytes_consumed{0};
         bool keep_alive{true};
         bool valid{false};
     };

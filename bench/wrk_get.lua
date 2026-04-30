@@ -3,7 +3,7 @@
 --
 -- Usage: wrk -t4 -c100 -d10s -s bench/wrk_get.lua http://localhost:8200
 
-counter = 0
+counter = -1
 
 request = function()
     counter = counter + 1
