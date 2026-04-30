@@ -69,7 +69,7 @@ protected:
 // ---------------------------------------------------------------------------
 
 TEST_F(RocksDBStorageTest, OpensSuccessfully) {
-    EXPECT_TRUE(storage_->is_open());
+    EXPECT_TRUE(storage_->isOpen());
 }
 
 TEST_F(RocksDBStorageTest, CreatesDirectoryIfMissing) {
@@ -78,7 +78,7 @@ TEST_F(RocksDBStorageTest, CreatesDirectoryIfMissing) {
 
     std::string nested_path = test_db_path + "/nested/deep/dir";
     RocksDBStorage nested_db(nested_path);
-    EXPECT_TRUE(nested_db.is_open());
+    EXPECT_TRUE(nested_db.isOpen());
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ TEST_F(RocksDBStorageTest, IterateAllReturnsAllEntries) {
     storage_->put("k3", makeEntry("k3", "v3"));
 
     std::vector<std::string> found_keys;
-    storage_->iterate_all([&](const SecretEntry& entry) {
+    storage_->iterateAll([&](const SecretEntry& entry) {
         found_keys.push_back(entry.key);
     });
 
@@ -149,7 +149,7 @@ TEST_F(RocksDBStorageTest, IterateAllReturnsAllEntries) {
 
 TEST_F(RocksDBStorageTest, IterateAllOnEmptyDatabase) {
     int count = 0;
-    storage_->iterate_all([&](const SecretEntry&) { count++; });
+    storage_->iterateAll([&](const SecretEntry&) { count++; });
     EXPECT_EQ(count, 0);
 }
 
@@ -159,7 +159,7 @@ TEST_F(RocksDBStorageTest, IterateAllExcludesDeletedKeys) {
     storage_->del("drop");
 
     std::vector<std::string> found_keys;
-    storage_->iterate_all([&](const SecretEntry& entry) {
+    storage_->iterateAll([&](const SecretEntry& entry) {
         found_keys.push_back(entry.key);
     });
 
@@ -173,13 +173,13 @@ TEST_F(RocksDBStorageTest, IterateAllExcludesDeletedKeys) {
 
 TEST_F(RocksDBStorageTest, DataSurvivesReopen) {
     // Phase 1: Write with sync mode
-    storage_->set_sync(true);
+    storage_->setSync(true);
     storage_->put("durable_key", makeEntry("durable_key", "durable_value", "/vault"));
     storage_.reset(); // Close DB (triggers flush in destructor)
 
     // Phase 2: Reopen and verify
     auto reopened = std::make_unique<RocksDBStorage>(test_db_path);
-    ASSERT_TRUE(reopened->is_open());
+    ASSERT_TRUE(reopened->isOpen());
 
     auto result = reopened->get("durable_key");
     ASSERT_TRUE(result.has_value());
@@ -188,7 +188,7 @@ TEST_F(RocksDBStorageTest, DataSurvivesReopen) {
 }
 
 TEST_F(RocksDBStorageTest, MultipleEntriesSurviveReopen) {
-    storage_->set_sync(true);
+    storage_->setSync(true);
     for (int i = 0; i < 100; ++i) {
         std::string key = "persist_" + std::to_string(i);
         storage_->put(key, makeEntry(key, "val_" + std::to_string(i)));
@@ -196,7 +196,7 @@ TEST_F(RocksDBStorageTest, MultipleEntriesSurviveReopen) {
     storage_.reset();
 
     auto reopened = std::make_unique<RocksDBStorage>(test_db_path);
-    ASSERT_TRUE(reopened->is_open());
+    ASSERT_TRUE(reopened->isOpen());
 
     // Verify random samples
     for (int sample : {0, 25, 50, 75, 99}) {
@@ -213,8 +213,8 @@ TEST_F(RocksDBStorageTest, MultipleEntriesSurviveReopen) {
 
 TEST_F(RocksDBStorageTest, SetSyncToggle) {
     // Should not throw or crash
-    EXPECT_NO_THROW(storage_->set_sync(true));
-    EXPECT_NO_THROW(storage_->set_sync(false));
+    EXPECT_NO_THROW(storage_->setSync(true));
+    EXPECT_NO_THROW(storage_->setSync(false));
 }
 
 TEST_F(RocksDBStorageTest, ExplicitFlush) {
@@ -323,6 +323,6 @@ TEST_F(RocksDBStorageTest, BulkInsertAndIterateAll) {
     }
 
     int count = 0;
-    storage_->iterate_all([&](const SecretEntry&) { count++; });
+    storage_->iterateAll([&](const SecretEntry&) { count++; });
     EXPECT_EQ(count, num_entries);
 }

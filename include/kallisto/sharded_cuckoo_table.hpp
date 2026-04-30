@@ -33,7 +33,7 @@ namespace kallisto
 class ShardedCuckooTable
 {
       public:
-	static constexpr size_t NUM_SHARDS = 64;
+	static constexpr size_t num_shards = 64;
 
 	/**
 	 * @param total_capacity Total capacity across all shards (default 1M)
@@ -51,17 +51,17 @@ class ShardedCuckooTable
 	std::vector<SecretEntry> getAllEntries() const;
 
 	// Sharding info
-	size_t numShards() const { return NUM_SHARDS; }
+	size_t numShards() const { return num_shards; }
 
 	size_t getShardIndex(const std::string &key) const
 	{
 		// Use static SipHash with consistent seed for sharding
 		return SipHash::hash(key, 0xDEADBEEF64, 0xCAFEBABE64) &
-		       (NUM_SHARDS - 1);
+		       (num_shards - 1);
 	}
 
       private:
-	std::array<std::unique_ptr<CuckooTable>, NUM_SHARDS> shards_;
+	std::array<std::unique_ptr<CuckooTable>, num_shards> shards_;
 
 	// HOT PATH - inlined for performance (O5 Council recommendation)
 	inline CuckooTable *getShard(const std::string &key) const
@@ -69,7 +69,7 @@ class ShardedCuckooTable
 		// Use same seed as CuckooTable::hash1Full for consistent
 		// distribution
 		size_t idx = SipHash::hash(key, 0xDEADBEEF64, 0xCAFEBABE64) &
-			     (NUM_SHARDS - 1);
+			     (num_shards - 1);
 		return shards_[idx].get();
 	}
 };

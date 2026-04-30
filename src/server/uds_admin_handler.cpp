@@ -118,15 +118,15 @@ void UdsAdminHandler::handleClient(int client_fd) {
     std::string response = "UNKNOWN COMMAND\n";
 
     if (cmd == "SAVE") {
-        core_->force_flush();
+        core_->forceFlush();
         kallisto::info("[UDS Admin] Invoked manual SAVE.");
         response = "OK: Database flushed to disk.\n";
     } else if (cmd == "MODE BATCH") {
-        core_->change_sync_mode(KallistoCore::SyncMode::BATCH);
+        core_->changeSyncMode(KallistoCore::SyncMode::BATCH);
         kallisto::info("[UDS Admin] Sync mode changed to BATCH.");
         response = "OK: Mode changed to BATCH.\n";
     } else if (cmd == "MODE IMMEDIATE") {
-        core_->change_sync_mode(KallistoCore::SyncMode::IMMEDIATE);
+        core_->changeSyncMode(KallistoCore::SyncMode::IMMEDIATE);
         kallisto::info("[UDS Admin] Sync mode changed to IMMEDIATE.");
         response = "OK: Mode changed to IMMEDIATE.\n";
     }

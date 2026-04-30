@@ -1,4 +1,5 @@
 #include "kallisto/rocksdb_storage.hpp"
+#include "kallisto/logger.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -107,7 +108,7 @@ bool RocksDBStorage::del(const std::string& key) {
     return true;
 }
 
-void RocksDBStorage::iterate_all(std::function<void(const SecretEntry&)> callback) const {
+void RocksDBStorage::iterateAll(std::function<void(const SecretEntry&)> callback) const {
     if (!db_open_ || !db_raw_) { 
 		return;
 	}
@@ -146,12 +147,12 @@ void RocksDBStorage::flush() {
     }
 }
 
-void RocksDBStorage::set_sync(bool sync) {
+void RocksDBStorage::setSync(bool sync) {
     write_opts_.sync = sync;
     LOG_INFO("[ROCKSDB] Sync mode set to: " + std::string(sync ? "IMMEDIATE" : "BATCH"));
 }
 
-bool RocksDBStorage::is_open() const {
+bool RocksDBStorage::isOpen() const {
     return db_open_ && db_raw_ != nullptr;
 }
 

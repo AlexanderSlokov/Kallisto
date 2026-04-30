@@ -38,13 +38,13 @@ TEST_F(ShardedCuckooTableTest, BasicCrud) {
 
 TEST_F(ShardedCuckooTableTest, HashDistribution) {
     // Validate that our SipHash mechanism properly spreads keys across all shards
-    std::vector<int> shard_counts(kallisto::ShardedCuckooTable::NUM_SHARDS, 0);
+    std::vector<int> shard_counts(kallisto::ShardedCuckooTable::num_shards, 0);
 
     for (int i = 0; i < 10000; ++i) {
         std::string key = "dist_key_" + std::to_string(i);
         size_t shard_id = table.getShardIndex(key);
 
-        ASSERT_LT(shard_id, kallisto::ShardedCuckooTable::NUM_SHARDS);
+        ASSERT_LT(shard_id, kallisto::ShardedCuckooTable::num_shards);
         shard_counts[shard_id]++;
     }
 

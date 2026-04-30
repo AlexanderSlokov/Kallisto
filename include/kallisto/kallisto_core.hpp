@@ -52,13 +52,13 @@ public:
   /**
    * @brief Thread-safe toggle for sync mode.
    */
-  void change_sync_mode(SyncMode mode);
-  SyncMode get_sync_mode() const;
+  void changeSyncMode(SyncMode mode);
+  SyncMode getSyncMode() const;
 
   /**
    * @brief Manually triggers a disk flush.
    */
-  void force_flush();
+  void forceFlush();
 
 private:
   std::unique_ptr<ShardedCuckooTable> storage_;
@@ -74,9 +74,9 @@ private:
   static constexpr size_t sync_threshold = 100000;
 
   // Internal helpers
-  void check_and_sync();
-  std::string build_full_key(const std::string& path, const std::string& key) const;
-  void rebuild_indices(const std::vector<SecretEntry>& secrets);
+  void checkAndSync();
+  std::string buildFullKey(const std::string& path, const std::string& key) const;
+  void rebuildIndices(const std::vector<SecretEntry>& secrets);
 };
 
 } // namespace kallisto

@@ -9,7 +9,6 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include <fstream>
 
 namespace kallisto {
 
@@ -44,15 +43,25 @@ public:
     
     void setLevel(const std::string& level_str) {
         std::string lvl = level_str;
-        for (auto& c : lvl) c = std::tolower(c);
+        for (auto& c : lvl) { 
+            c = std::tolower(c);
+        }
         
-        if (lvl == "trace") setLevel(LogLevel::TRACE);
-        else if (lvl == "debug") setLevel(LogLevel::DEBUG);
-        else if (lvl == "info") setLevel(LogLevel::INFO);
-        else if (lvl == "warn" || lvl == "warning") setLevel(LogLevel::WARN);
-        else if (lvl == "error") setLevel(LogLevel::ERROR);
-        else if (lvl == "none" || lvl == "off") setLevel(LogLevel::NONE);
-        else setLevel(LogLevel::INFO);
+        if (lvl == "trace") { 
+            setLevel(LogLevel::TRACE);
+        } else if (lvl == "debug") {
+            setLevel(LogLevel::DEBUG);
+        } else if (lvl == "info") {
+            setLevel(LogLevel::INFO);
+        } else if (lvl == "warn" || lvl == "warning") {
+            setLevel(LogLevel::WARN);
+        } else if (lvl == "error") { 
+            setLevel(LogLevel::ERROR);
+        } else if (lvl == "none" || lvl == "off") {
+            setLevel(LogLevel::NONE);
+        } else {
+            setLevel(LogLevel::INFO);
+        }
     }
 
     LogLevel getLevel() const { 
@@ -68,15 +77,17 @@ public:
     }
 
     void setThreadName(const std::string& name) {
-        thread_name_ = name;
+        thread_name = name;
     }
 
     const std::string& getThreadName() const {
-        return thread_name_;
+        return thread_name;
     }
 
     void log(LogLevel level, const char* file, int line, const std::string& msg) {
-        if (!shouldLog(level)) return;
+        if (!shouldLog(level)) { 
+			return;
+        }
 
         // Extract filename from path
         const char* filename = file;
@@ -104,8 +115,8 @@ public:
         oss << '[' << levelToString(level) << "] ";
 
         // Thread ID (use name if set, otherwise numeric)
-        if (!thread_name_.empty()) {
-            oss << "[tid:" << thread_name_ << "] ";
+        if (!thread_name.empty()) {
+            oss << "[tid:" << thread_name << "] ";
         } else {
             oss << "[tid:" << std::this_thread::get_id() << "] ";
         }
@@ -149,11 +160,11 @@ private:
 
     std::atomic<LogLevel> current_level_;
     std::mutex output_mutex_;
-    static thread_local std::string thread_name_;
+    static thread_local std::string thread_name;
 };
 
 // Thread-local storage for thread name
-inline thread_local std::string Logger::thread_name_;
+inline thread_local std::string Logger::thread_name;
 
 // ============================================================================
 // Logging Macros - Zero-cost when level is disabled
@@ -208,34 +219,39 @@ inline void Logger::setup(const LogConfig& config) {
 }
 
 // Legacy inline functions with explicit file/line parameters
-inline void trace_impl(const char* file, int line, const std::string& msg) {
-    if (Logger::getInstance().shouldLog(LogLevel::TRACE))
+inline void traceImpl(const char* file, int line, const std::string& msg) {
+    if (Logger::getInstance().shouldLog(LogLevel::TRACE)) {
         Logger::getInstance().log(LogLevel::TRACE, file, line, msg);
+    }
 }
-inline void debug_impl(const char* file, int line, const std::string& msg) {
-    if (Logger::getInstance().shouldLog(LogLevel::DEBUG))
+inline void debugImpl(const char* file, int line, const std::string& msg) {
+    if (Logger::getInstance().shouldLog(LogLevel::DEBUG)) {
         Logger::getInstance().log(LogLevel::DEBUG, file, line, msg);
+    }
 }
-inline void info_impl(const char* file, int line, const std::string& msg) {
-    if (Logger::getInstance().shouldLog(LogLevel::INFO))
+inline void infoImpl(const char* file, int line, const std::string& msg) {
+    if (Logger::getInstance().shouldLog(LogLevel::INFO)) {
         Logger::getInstance().log(LogLevel::INFO, file, line, msg);
+    }
 }
-inline void warn_impl(const char* file, int line, const std::string& msg) {
-    if (Logger::getInstance().shouldLog(LogLevel::WARN))
+inline void warnImpl(const char* file, int line, const std::string& msg) {
+    if (Logger::getInstance().shouldLog(LogLevel::WARN)) {
         Logger::getInstance().log(LogLevel::WARN, file, line, msg);
+    }
 }
-inline void error_impl(const char* file, int line, const std::string& msg) {
-    if (Logger::getInstance().shouldLog(LogLevel::ERROR))
+inline void errorImpl(const char* file, int line, const std::string& msg) {
+    if (Logger::getInstance().shouldLog(LogLevel::ERROR)) {
         Logger::getInstance().log(LogLevel::ERROR, file, line, msg);
+    }
 }
 
 // Legacy wrapper functions (for existing code using kallisto::warn("msg") style)
 // Note: These will show logger.hpp as file location. For correct file:line, use LOG_* macros.
-inline void trace(const std::string& msg) { trace_impl(__FILE__, __LINE__, msg); }
-inline void debug(const std::string& msg) { debug_impl(__FILE__, __LINE__, msg); }
-inline void info(const std::string& msg)  { info_impl(__FILE__, __LINE__, msg); }
-inline void warn(const std::string& msg)  { warn_impl(__FILE__, __LINE__, msg); }
-inline void error(const std::string& msg) { error_impl(__FILE__, __LINE__, msg); }
+inline void trace(const std::string& msg) { traceImpl(__FILE__, __LINE__, msg); }
+inline void debug(const std::string& msg) { debugImpl(__FILE__, __LINE__, msg); }
+inline void info(const std::string& msg)  { infoImpl(__FILE__, __LINE__, msg); }
+inline void warn(const std::string& msg)  { warnImpl(__FILE__, __LINE__, msg); }
+inline void error(const std::string& msg) { errorImpl(__FILE__, __LINE__, msg); }
 
 } // namespace kallisto
 

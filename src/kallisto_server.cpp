@@ -140,7 +140,7 @@ public:
         uds_admin_->stop();     // Stops accept loops
 
         // Important: Guarantee atomic durability on crash/shutdown
-        core_->force_flush();
+        core_->forceFlush();
         info("[SERVER] KallistoCore flushed.");
         info("[SERVER] Shutdown complete.");
     }

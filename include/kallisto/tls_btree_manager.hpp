@@ -48,11 +48,11 @@ private:
     std::mutex master_mutex_;
     event::WorkerPool* worker_pool_;
 
-    static thread_local std::shared_ptr<const BTreeIndex> tls_btree_;
+    static thread_local std::shared_ptr<const BTreeIndex> tls_btree;
 
     // GC queue: old snapshots awaiting deallocation off the hot path
-    static std::mutex gc_mutex_;
-    static std::vector<std::shared_ptr<const BTreeIndex>> gc_queue_;
+    static std::mutex gc_mutex;
+    static std::vector<std::shared_ptr<const BTreeIndex>> gc_queue;
 };
 
 } // namespace kallisto
