@@ -53,7 +53,7 @@ You don't even need to build anything. Just pull the image and run the server in
 docker run -d \
   --name kallisto \
   -p 8200:8200 \
-  -v my-kallisto-data:/data/kallisto/rocksdb \
+  -v my-kallisto-data:/kallisto/data \
   ghcr.io/alexanderslokov/kallisto:latest
 ```
 
@@ -123,7 +123,7 @@ Or with custom options:
 |--------|---------|-------------|
 | `--http-port=PORT` | `8200` | HTTP API port (Vault-compatible) |
 | `--workers=N` | CPU cores | Number of worker threads |
-| `--db-path=PATH` | `/data/kallisto/rocksdb` | RocksDB data directory |
+| `--db-path=PATH` | `/kallisto/data` | RocksDB data directory |
 | `--help`, `-h` | — | Show help |
 
 ### Expected Startup Output

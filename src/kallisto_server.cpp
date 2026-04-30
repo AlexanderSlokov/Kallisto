@@ -43,7 +43,7 @@ event::WorkerPoolPtr createWorkerPool(size_t num_workers);
 struct ServerConfig {
     uint16_t http_port = 8200;
     size_t num_workers = 4;
-    std::string db_path = "/data/kallisto/rocksdb";
+    std::string db_path = "/kallisto/data";
     std::string socket_path = "/var/run/kallisto/kallisto.sock";
 
     static ServerConfig parseFromArgs(int argc, char** argv) {
@@ -84,7 +84,7 @@ struct ServerConfig {
         std::cout << "Usage: kallisto_server [options]\n"
                   << "  --http-port=PORT   HTTP port (default: 8200)\n"
                   << "  --workers=N        Number of worker threads (default: CPU cores)\n"
-                  << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
+                  << "  --db-path=PATH     RocksDB data directory (default: /kallisto/data)\n"
                   << "  --socket-path=PATH Admin UDS socket path (default: /var/run/kallisto/kallisto.sock)\n"
                   << std::endl;
     }

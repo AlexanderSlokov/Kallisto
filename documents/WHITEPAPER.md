@@ -199,7 +199,7 @@ KallistoServer::KallistoServer() {
     // Load Factor = 10,000 / 32,768 ≈ 30% (should be safe).
     storage = std::make_unique<ShardedCuckooTable>(2000000);
     path_index = std::make_unique<TlsBTreeManager>(5, nullptr);
-    rocksdb_persistence = std::make_unique<RocksDBStorage>("/data/kallisto/rocksdb");
+    rocksdb_persistence = std::make_unique<RocksDBStorage>("/kallisto/data");
 
     // Rebuild B-Tree index from RocksDB on startup
     rocksdb_persistence->iterate_all([&](const SecretEntry& entry) {

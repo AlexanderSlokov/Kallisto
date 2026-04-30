@@ -27,7 +27,7 @@ namespace kallisto {
  */
 class RocksDBStorage {
 public:
-    explicit RocksDBStorage(const std::string& db_path = "/data/kallisto/rocksdb");
+    explicit RocksDBStorage(const std::string& db_path = "/kallisto/data");
     ~RocksDBStorage();
 
     // No copy/move — single instance shared via shared_ptr
