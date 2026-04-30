@@ -1,10 +1,10 @@
-name: Docker Build and Publish
+name: Docker Build and Publish Alpha build for Nauhgtian Kallisto
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "1.0.0-alpha" ]
     # Build on semantic release tags like v1.0.0
-    tags: [ 'v*.*.*' ]
+    tags: [ 'v*.*.*-alpha' ]
   # Khởi chạy thủ công từ giao diện Actions (Rất hữu ích để bạn chủ động Build)
   workflow_dispatch:
 
@@ -57,16 +57,27 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,format=short
 
-      # Build & Push the specialized tester image (Optional, but great for CI caching)
-      - name: Build and push tester image
+      # Build the specialized tester image and load it locally for testing
+      - name: Build tester image
         uses: docker/build-push-action@v5
         with:
           context: .
           target: tester
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
+          load: true
+          tags: kallisto-tester:latest
           cache-from: type=gha,scope=tester
           cache-to: type=gha,mode=max,scope=tester
+
+      # Run tests to prevent broken code from being published
+      - name: Run Unit Tests
+        run: docker run --rm kallisto-tester:latest make test
+
+      # Push tester image to registry
+      - name: Push tester image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag kallisto-tester:latest ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
 
       # Build & Push the production Server Image
       - name: Build and push Production Image
