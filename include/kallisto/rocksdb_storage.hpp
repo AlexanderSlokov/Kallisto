@@ -78,11 +78,10 @@ public:
 
 private:
 #ifdef KALLISTO_HAS_ROCKSDB
-    rocksdb::DB* db_raw_ = nullptr;  // Raw pointer, RocksDB manages lifetime
+    std::unique_ptr<rocksdb::DB> db_;
     rocksdb::Options options_;
     rocksdb::WriteOptions write_opts_;
     rocksdb::ReadOptions read_opts_;
-    bool db_open_ = false;
 #endif
 
     /**

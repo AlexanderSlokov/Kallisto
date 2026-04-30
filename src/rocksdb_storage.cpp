@@ -29,36 +29,31 @@ RocksDBStorage::RocksDBStorage(const std::string& db_path) {
     // Default: async writes (BATCH mode). Can toggle with set_sync().
     write_opts_.sync = false;
 
-    rocksdb::Status status = rocksdb::DB::Open(options_, db_path, &db_raw_);
+    rocksdb::Status status = rocksdb::DB::Open(options_, db_path, &db_);
     if (!status.ok()) {
         LOG_ERROR("[ROCKSDB] Failed to open database at " + db_path + ": " + status.ToString());
-        db_raw_ = nullptr;
-        db_open_ = false;
+        db_.reset();
         return;
     }
 
-    db_open_ = true;
     LOG_INFO("[ROCKSDB] Database opened at " + db_path);
 }
 
 RocksDBStorage::~RocksDBStorage() {
-    if (db_raw_) {
+    if (db_) {
         rocksdb::FlushOptions flush_options;
         flush_options.wait = true;
-        db_raw_->Flush(flush_options);
-
-        delete db_raw_;
-        db_raw_ = nullptr;
+        db_->Flush(flush_options);
     }
 }
 
 bool RocksDBStorage::put(const std::string& key, const SecretEntry& entry) {
-    if (!db_open_ || !db_raw_) {
+    if (!db_) {
         return false;
     }
 
     std::string serialized_value = serialize(entry);
-    rocksdb::Status status = db_raw_->Put(write_opts_, key, serialized_value);
+    rocksdb::Status status = db_->Put(write_opts_, key, serialized_value);
 
     if (!status.ok()) {
         LOG_ERROR("[ROCKSDB] PUT failed for key '" + key + "': " + status.ToString());
@@ -69,12 +64,12 @@ bool RocksDBStorage::put(const std::string& key, const SecretEntry& entry) {
 }
 
 std::optional<SecretEntry> RocksDBStorage::get(const std::string& key) const {
-    if (!db_open_ || !db_raw_) {
+    if (!db_) {
         return std::nullopt;
     }
 
     std::string raw_value;
-    rocksdb::Status status = db_raw_->Get(read_opts_, key, &raw_value);
+    rocksdb::Status status = db_->Get(read_opts_, key, &raw_value);
 
     if (status.IsNotFound()) {
         return std::nullopt;
@@ -94,11 +89,11 @@ std::optional<SecretEntry> RocksDBStorage::get(const std::string& key) const {
 }
 
 bool RocksDBStorage::del(const std::string& key) {
-    if (!db_open_ || !db_raw_) {
+    if (!db_) {
         return false;
     }
 
-    rocksdb::Status status = db_raw_->Delete(write_opts_, key);
+    rocksdb::Status status = db_->Delete(write_opts_, key);
 
     if (!status.ok()) {
         LOG_ERROR("[ROCKSDB] DEL failed for key '" + key + "': " + status.ToString());
@@ -109,13 +104,13 @@ bool RocksDBStorage::del(const std::string& key) {
 }
 
 void RocksDBStorage::iterateAll(std::function<void(const SecretEntry&)> callback) const {
-    if (!db_open_ || !db_raw_) { 
+    if (!db_) { 
 		return;
 	}
 
     rocksdb::ReadOptions iter_opts = read_opts_;
     iter_opts.total_order_seek = true;
-    std::unique_ptr<rocksdb::Iterator> it(db_raw_->NewIterator(iter_opts));
+    std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(iter_opts));
     
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
         try {
@@ -132,13 +127,13 @@ void RocksDBStorage::iterateAll(std::function<void(const SecretEntry&)> callback
 }
 
 void RocksDBStorage::flush() {
-    if (!db_open_ || !db_raw_) { 
+    if (!db_) { 
 		return;
 	}
 
     rocksdb::FlushOptions flush_opts;
     flush_opts.wait = true;
-    rocksdb::Status status = db_raw_->Flush(flush_opts);
+    rocksdb::Status status = db_->Flush(flush_opts);
 
     if (status.ok()) {
         LOG_INFO("[ROCKSDB] WAL flushed to disk.");
@@ -153,7 +148,7 @@ void RocksDBStorage::setSync(bool sync) {
 }
 
 bool RocksDBStorage::isOpen() const {
-    return db_open_ && db_raw_ != nullptr;
+    return db_ != nullptr;
 }
 
 // ---------------------------------------------------------------------------
