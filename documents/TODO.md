@@ -56,6 +56,7 @@
 - [ ] **`/v1/sys/*` System Endpoints (Mock)**:
   - `GET /v1/sys/health` — Health check (trả status sealed/unsealed/standby).
   - `GET /v1/sys/seal-status` — Seal status.
+  - **Healthcheck Binary Support**: Implement `kallisto status` để dùng làm healthcheck chính thống. **Exit codes:** 0: Đã unsealed (hoạt động bình thường). 2: Đang bị sealed (chưa sẵn sàng phục vụ). 1: Có lỗi xảy ra.
   - `POST /v1/sys/mounts/:path` — Mount engine (mock: chỉ KV hiện tại).
   - `GET /v1/sys/mounts` — List mounted engines.
 
