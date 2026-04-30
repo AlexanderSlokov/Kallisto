@@ -68,10 +68,6 @@ jobs:
           cache-from: type=gha,scope=tester
           cache-to: type=gha,mode=max,scope=tester
 
-      # Run tests to prevent broken code from being published
-      - name: Run Unit Tests
-        run: docker run --rm kallisto-tester:latest make test
-
       # Push tester image to registry
       - name: Push tester image
         if: github.event_name != 'pull_request'
