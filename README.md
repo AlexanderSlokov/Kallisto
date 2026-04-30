@@ -10,9 +10,10 @@ Kallisto is a high-performance secret management engine built with C++20. It pro
 
 # IMPORTANT NOTICES
 
-1. Be advised, `Naughtian Kallisto` from version `1.0.0` to `2.5.0` is not offically released as the production-ready application. We will not take any accountability for application security, compliance or stability if you use `Naughtian Kallisto` in your production environment, directly or indirectly, and causing damages for your own businesses. Use as your own concents.
+1. Be advised, `Naughtian Kallisto` from version `1.0.0` to `2.5.0` is not offically released as the production-ready application. We will not take any accountability for application security, compliance or stability if you use `Naughtian Kallisto` in your production environment, directly or indirectly, and causing damages for your own businesses. Use as your own consents.
 2. Start from version 2.0.0, `Naughtian Kallisto` will begin to use many Rust components through Foreign Function Interface (FFI). Breaking changes must happen and will affect application's stability. We strongly advice you to use `Naughtian Kallisto` start from 2.5.0 version (tagged `2.5.0-lts`) as this will be the offical release of production-ready version.
-3. `Naughtian Kallisto` is protected under `APGLv3` license. Custom "Commercial" or "Enterprise" License can be discussed.
+3. `Naughtian Kallisto` is protected under `AGPLv3` license. Custom "Commercial" or "Enterprise" License can be discussed.
+4. DO NOT use `Naughtian Kallisto` as a drop-in replacement directly for your current OpenBao/Hashicorp Vault infrastructure! Kallisto itself, while developed with high attention to cryptomatic security and provides similar API interface/contracts of Vault/OpenBao, can not and should not be used to replace them as a upstream secret management platform. To justify, `Naughtian Kallisto` is still a C++ project with not enough "pair of eyes" to audit or eliminate all security weaknesses, it will not meet the safety and compliance of OpenBao/Vault, and it WAS NOT designed to be a "Vault killer" at all. `Naughtian Kallisto` should only be use to store non-lethal secrets (those are, secrets that you do not want everyone to steal or read, but you can effectively reduce "blast radious" by revoke mechanisms in case they are stealed. "Stripe sk" or any similar type of "sk" do not counted!) We will not hold any accountability or legal problems if you ignored this warning and act as your own consents. You are advised.
 
 # HOW TO USE
 
