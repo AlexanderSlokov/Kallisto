@@ -76,7 +76,7 @@ test-threading: build
 test-persistence: build-server
 	@bash tests/test_persistence.sh
 
-coverage:
+coverage: clean build-server
 	@echo "Building with coverage enabled..."
 	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_COVERAGE=ON
 	@cmake --build $(BUILD_DIR) -j $(shell nproc)

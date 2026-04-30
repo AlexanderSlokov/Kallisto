@@ -5,7 +5,7 @@
 ### P0 — Hexagonal Architecture & KV Engine (Foundation)
 > *Không có cái này thì không thể mở rộng thêm engine nào khác. Làm đầu tiên.*
 
-- [ ] **Hexagonal Architecture Refactor**:
+- [x] **Hexagonal Architecture Refactor**:
   - Tách `KallistoCore` thành các Port/Adapter rõ ràng:
     - **Port (Interface):** `ISecretEngine` — interface chung cho mọi engine (KV, Transit, Leased Token...).
     - **Port (Interface):** `IStorageBackend` — abstract hóa RocksDB/CuckooTable thành pluggable storage.

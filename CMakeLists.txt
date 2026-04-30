@@ -25,6 +25,8 @@ add_library(kallisto_lib
     src/tls_btree_manager.cpp
     src/rocksdb_storage.cpp
     src/kallisto_core.cpp
+    src/engine/kv_engine.cpp
+    src/engine/engine_registry.cpp
     # Threading infrastructure (Phase 1.1)
     src/event/dispatcher_impl.cpp
     src/event/worker_impl.cpp
@@ -101,6 +103,14 @@ add_test(NAME WorkerTest COMMAND test_worker)
 add_executable(test_kallisto_core src/test_kallisto_core.cpp)
 target_link_libraries(test_kallisto_core PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
 add_test(NAME KallistoCoreTest COMMAND test_kallisto_core)
+
+add_executable(test_kv_engine src/engine/test_kv_engine.cpp)
+target_link_libraries(test_kv_engine PRIVATE kallisto_lib GTest::gtest GTest::gtest_main pthread)
+add_test(NAME KvEngineTest COMMAND test_kv_engine)
+
+add_executable(test_engine_registry src/engine/test_engine_registry.cpp)
+target_link_libraries(test_engine_registry PRIVATE kallisto_lib GTest::gtest GTest::gtest_main GTest::gmock pthread)
+add_test(NAME EngineRegistryTest COMMAND test_engine_registry)
 
 # Kallisto UDS Admin tests
 add_executable(test_uds_admin src/server/test_uds_admin_handler.cpp)

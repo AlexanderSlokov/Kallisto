@@ -1,0 +1,59 @@
+#pragma once
+
+#include "kallisto/engine/i_secret_engine.hpp"
+#include "kallisto/engine/engine_concept.hpp"
+#include "kallisto/sharded_cuckoo_table.hpp"
+#include "kallisto/tls_btree_manager.hpp"
+#include <atomic>
+#include <memory>
+#include <string>
+
+namespace kallisto {
+class RocksDBStorage; // Forward declaration
+}
+
+namespace kallisto::engine {
+
+/**
+ * KvEngine — KV Secrets Engine v1.
+ *
+ * `final` enables compiler devirtualization (see MACM analysis).
+ * Owns all storage layers: ShardedCuckooTable + RocksDB + BTree index.
+ */
+class KvEngine final : public ISecretEngine {
+public:
+    explicit KvEngine(const std::string& db_path = "/var/lib/kallisto/data");
+    ~KvEngine() override;
+
+    // --- ISecretEngine interface ---
+    bool put(const SecretEntry& entry) override;
+    std::optional<SecretEntry> get(const std::string& path,
+                                   const std::string& key) override;
+    bool del(const std::string& path, const std::string& key) override;
+    std::string engineType() const override { return "kv"; }
+
+    void changeSyncMode(SyncMode mode) override;
+    SyncMode getSyncMode() const override;
+    void forceFlush() override;
+
+private:
+    std::unique_ptr<ShardedCuckooTable> storage_;
+    std::unique_ptr<TlsBTreeManager> path_index_;
+    std::unique_ptr<RocksDBStorage> rocksdb_persistence_;
+
+    std::atomic<SyncMode> sync_mode_{SyncMode::IMMEDIATE};
+    std::atomic<size_t> unsaved_ops_count_{0};
+
+    static constexpr size_t default_cuckoo_size = 2097152;
+    static constexpr int default_btree_degree = 100;
+    static constexpr size_t sync_threshold = 100000;
+
+    void handleBatchSync();
+    void checkAndSync();
+    std::string buildFullKey(const std::string& path, const std::string& key) const;
+};
+
+// Compile-time contract validation
+static_assert(ValidEngine<KvEngine>, "KvEngine must satisfy SecretEngine contract");
+
+} // namespace kallisto::engine
