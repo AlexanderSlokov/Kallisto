@@ -44,7 +44,7 @@ struct ServerConfig {
     uint16_t http_port = 8200;
     size_t num_workers = 4;
     std::string db_path = "/data/kallisto/rocksdb";
-    std::string socket_path = "/var/run/kallisto.sock";
+    std::string socket_path = "/var/run/kallisto/kallisto.sock";
 
     static ServerConfig parseFromArgs(int argc, char** argv) {
         ServerConfig config;
@@ -52,8 +52,8 @@ struct ServerConfig {
         // Auto-detect cores
         config.num_workers = std::thread::hardware_concurrency();
         if (config.num_workers == 0) { 
-			config.num_workers = 4;
-		}
+            config.num_workers = 4;
+        }
 
         for (int i = 1; i < argc; i++) {
             std::string arg = argv[i];
@@ -85,7 +85,7 @@ struct ServerConfig {
                   << "  --http-port=PORT   HTTP port (default: 8200)\n"
                   << "  --workers=N        Number of worker threads (default: CPU cores)\n"
                   << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
-                  << "  --socket-path=PATH Admin UDS socket path (default: /var/run/kallisto.sock)\n"
+                  << "  --socket-path=PATH Admin UDS socket path (default: /var/run/kallisto/kallisto.sock)\n"
                   << std::endl;
     }
 

@@ -64,7 +64,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Add non-root user for running tests securely
 RUN useradd -m -s /bin/bash kallisto \
     && mkdir -p /data/kallisto/rocksdb \
-    && chown -R kallisto:kallisto /data/kallisto
+    && mkdir -p /var/run/kallisto \
+    && chown -R kallisto:kallisto /data/kallisto \
+    && chown -R kallisto:kallisto /var/run/kallisto
 
 WORKDIR /app
 
@@ -87,10 +89,12 @@ FROM ubuntu:24.04 AS production
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Add kallisto user and prepare RocksDB directories
+# Add kallisto user and prepare RocksDB + socket directories
 RUN useradd -m -s /bin/bash kallisto \
     && mkdir -p /data/kallisto/rocksdb \
-    && chown -R kallisto:kallisto /data/kallisto
+    && mkdir -p /var/run/kallisto \
+    && chown -R kallisto:kallisto /data/kallisto \
+    && chown -R kallisto:kallisto /var/run/kallisto
 
 # Set volume for RocksDB persistence
 VOLUME ["/data/kallisto/rocksdb"]

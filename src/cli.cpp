@@ -20,7 +20,7 @@
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-static constexpr const char* default_socket_path = "/var/run/kallisto.sock";
+static constexpr const char* default_socket_path = "/var/run/kallisto/kallisto.sock";
 static constexpr size_t receive_buffer_size = 1024;
 
 // ---------------------------------------------------------------------------

@@ -99,7 +99,7 @@ Then use the admin client to control persistence behavior securely over UDS:
 | `MODE IMMEDIATE`| Switch to synchronous strict persistence | `./build/kallisto MODE IMMEDIATE` |
 | `--help` | Show all commands | `./build/kallisto --help` |
 
-> 🔒 **Security Note**: The UDS listener binds to `/var/run/kallisto.sock` and restricts access via `0600` (Owner-only R/W). Only the user (or root) executing the server process can issue admin commands.
+> 🔒 **Security Note**: The UDS listener binds to `/var/run/kallisto/kallisto.sock` and restricts access via `0600` (Owner-only R/W). Only the user (or root) executing the server process can issue admin commands.
 
 ## Server Mode
 
