@@ -88,3 +88,46 @@ TEST_F(ShardedCuckooTableTest, ParallelIsolation) {
     auto res = table.lookup("thread_0_key_500");
     EXPECT_TRUE(res.has_value());
 }
+
+TEST_F(ShardedCuckooTableTest, GetAllEntriesAndStats) {
+    // Problem Description: Verify that getAllEntries and getMemoryStats 
+    // properly aggregate data from all 64 shards. Boundary check on empty table.
+    
+    auto stats_empty = table.getMemoryStats();
+    EXPECT_GT(stats_empty.bucket_count, 0);
+    EXPECT_EQ(stats_empty.storage_used, 0);
+    
+    auto entries_empty = table.getAllEntries();
+    EXPECT_TRUE(entries_empty.empty());
+
+    // Insert 100 elements
+    for (int i = 0; i < 100; ++i) {
+        kallisto::SecretEntry e;
+        e.key = "key_" + std::to_string(i);
+        e.value = "val_" + std::to_string(i);
+        table.insert(e.key, e);
+    }
+    
+    auto stats = table.getMemoryStats();
+    EXPECT_EQ(stats.storage_used, 100);
+    EXPECT_GT(stats.total_memory_allocated, 0);
+    
+    auto entries = table.getAllEntries();
+    EXPECT_EQ(entries.size(), 100);
+}
+
+TEST_F(ShardedCuckooTableTest, BoundaryValues) {
+    // Problem Description: Test boundary values like empty strings for key/value
+    // to ensure hashing and lookup don't crash on edge cases.
+    kallisto::SecretEntry empty_entry;
+    empty_entry.key = "";
+    empty_entry.value = "";
+    
+    EXPECT_TRUE(table.insert("", empty_entry));
+    auto res = table.lookup("");
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res->value, "");
+    
+    EXPECT_TRUE(table.remove(""));
+    EXPECT_FALSE(table.lookup("").has_value());
+}

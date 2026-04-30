@@ -14,12 +14,6 @@ services:
       - WORKERS=4
       - DB_PATH=/kallisto/data
       - PORT_HTTP=8200
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8200/v1/secret/data/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 2s
     restart: unless-stopped
     networks:
       - kallisto-net
