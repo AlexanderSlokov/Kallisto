@@ -3,11 +3,10 @@
 ## 🚀 ROADMAP & PENDING TASKS
 
 ### 1. Security Layer & Testing Infrastructure
-- [ ] **[URGENT] Coverage & Integration Tests**: 
-  - *Tier 1 (Networking/API - 0%):* `src/server/grpc_handler.cpp` (mock gRPC Client), `src/server/http_handler.cpp` (mock REST/JSON Client), `src/kallisto_server.cpp` (init logic).
-  - *Tier 2 (Persistence - Crash Recovery):* `src/rocksdb_storage.cpp` (WAL recovery stress).
+- [x] **[URGENT] Coverage & Integration Tests**: 
+  - *Persistence - Crash Recovery:* `src/rocksdb_storage.cpp` (WAL recovery stress).
   - *Strategy:* Use Integration Tests (spin up `KallistoServer` on a loopback port) rather than isolated unit tests to quickly bump coverage.
-- [ ] **Testing Framework Migration**:
+- [x] **Testing Framework Migration**:
   - Migrate legacy macro tests in `tests/` to Google Test (GTest) & Google Mock (GMock) via `vcpkg`.
 - [ ] **Encryption-at-Rest**:
   - Implement AES-256-GCM (consider Google's `lazySSL`) to encrypt values before RocksDB sync. Maintain only Master Key in RAM. Implement Key Rotation & Unseal lifecycle.
@@ -24,14 +23,11 @@
 
 - [ ] **Chống timing attack**: Hạn chế thời gian xử lý request, không để thời gian xử lý request phụ thuộc vào nội dung request. Hashicorps Vault đã phát hiện ra rằng request xác thực sai trả kết quả nhanh hơn request xác thực đúng. Do đó hacker có thể dò ra token bằng cách gửi request liên tục và đo thời gian trả về.
 
-### 2. High-Performance Enhancements & Scalability
-- [ ] **[TODAY] Dẹp cái GRPC đi (Remove gRPC)**:
+### 2. Performance Enhancements
+- [x] **[TODAY] Dẹp cái GRPC đi (Remove gRPC)**:
   - Gỡ bỏ hoàn toàn `GrpcHandler`, Protobuf definitions (`proto/`), và gRPC server/reflection.
   - Xoá dependency `grpc` và `protobuf` khỏi `vcpkg.json` và `CMakeLists.txt` để giảm sự phức tạp và tối ưu thời gian build.
   - Tập trung 100% tài nguyên vào tối ưu HTTP/REST API (tuân thủ chuẩn Vault KV v2).
-- [ ] **Raft Consensus (Replication)**:
-  - Integrate eBay's `NuRaft`. Master-Follower model (Quorum of 3). 
-  - Mechanism: Dùng RocksDB làm `log_store`. State machine = áp dụng vào Cuckoo Table sau khi quorum consensus. Write performance sẽ drop, nhưng Read vẫn giữ được hiệu năng ops/sec.
 
 ### 3. Các lỗi nghiêm trọng đã phát hiện:
 
@@ -82,7 +78,7 @@
 
 Khắc phục: Gọi hàm `server.reset();` ngay phía trên `exit(0)`. Điều này ép server đóng một cách an toàn và giải phóng RocksDB trước khi cơ chế dọn dẹp static của C++ quét tới hàm Logger.
 
-### Phase 4: "The One True Core" & UDS Admin CLI
+### Phase 4: KallistoCore and UDS Admin CLI
 - **Status:** COMPLETE
 - **Architecture:** Eliminated Split-Brain architecture. Introduced `KallistoCore` Repository encapsulating all storage layers (B-Tree, Cuckoo, RocksDB, TTL Management). Handlers are now purely unopinionated I/O routers.
 - **Security:** Removed legacy REPL. Implemented thin UDS Admin CLI securely bound to `/var/run/kallisto.sock` using OS-level `0600` permissions.
