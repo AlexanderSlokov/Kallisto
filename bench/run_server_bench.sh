@@ -25,10 +25,22 @@ WORKERS=${2:-$HALF_CORES}
 CONNECTIONS=${3:-200}
 DURATION=${4:-10s}
 HTTP_PORT=8200
-GRPC_PORT=8201
+# Use /tmp for socket and db to avoid permission issues in Docker/non-root env
+export KALLISTO_SOCKET=${KALLISTO_SOCKET:-/tmp/kallisto.sock}
+BENCH_DB_PATH="/tmp/kallisto_bench_data"
+BENCH_LOG="/tmp/kallisto_bench.log"
 SERVER_BIN="./build/kallisto_server"
 CLI_BIN="./build/kallisto"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Helper to run commands with sudo only if necessary and available
+run_cmd() {
+    if [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
 
 # ── Colors ──────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -48,6 +60,7 @@ banner() {
     printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Kal Workers:" "$WORKERS"
     printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Connections:" "$CONNECTIONS"
     printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Duration:" "$DURATION"
+    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Socket Path:" "$KALLISTO_SOCKET"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -63,17 +76,20 @@ check_prereqs() {
     fi
 }
 
-# ── Step 2: Start server ────────────────────────────────────────────────
+# ── Step 2: Start server ────────────────────────────────────────────────────────────────────────
 start_server() {
-    echo -e "${CYAN}[1/5] Starting Kallisto server (${WORKERS} workers) as ROOT...${NC}"
+    echo -e "${CYAN}[1/5] Starting Kallisto server (${WORKERS} workers)...${NC}"
 
-    # Clean up old processes and socket files
-    sudo pkill -f kallisto_server 2>/dev/null || true
-    sudo rm -f /var/run/kallisto.sock 2>/dev/null
+    # Clean up old processes, socket files, and stale bench data
+    pkill -f kallisto_server 2>/dev/null || true
+    rm -f "$KALLISTO_SOCKET" 2>/dev/null
+    rm -rf "$BENCH_DB_PATH" 2>/dev/null
     sleep 0.5
 
-    # Run server with sudo privileges to bind /var/run/kallisto.sock
-    sudo $SERVER_BIN --http-port=$HTTP_PORT --grpc-port=$GRPC_PORT --workers=$WORKERS &>/dev/null &
+    # Run server with a temp db path (avoids /kallisto/data permission issues)
+    $SERVER_BIN --http-port=$HTTP_PORT --workers=$WORKERS \
+        --socket-path="$KALLISTO_SOCKET" \
+        --db-path="$BENCH_DB_PATH" &>"$BENCH_LOG" &
     SERVER_PID=$!
 
     for i in $(seq 1 30); do
@@ -86,7 +102,7 @@ start_server() {
     echo -e "${GREEN}  ✓ Server started (PID: $SERVER_PID)${NC}"
 
     echo -e "${CYAN}  Switching to BATCH mode...${NC}"
-    sudo $CLI_BIN "MODE BATCH"
+    $CLI_BIN "MODE BATCH"
     sleep 0.5
 }
 
@@ -124,8 +140,10 @@ run_benchmarks() {
 cleanup() {
     echo ""
     echo -e "${CYAN}Shutting down server...${NC}"
-    sudo kill $SERVER_PID 2>/dev/null || true
+    kill $SERVER_PID 2>/dev/null || true
     wait $SERVER_PID 2>/dev/null || true
+    rm -rf "$BENCH_DB_PATH" 2>/dev/null
+    rm -f "$BENCH_LOG" 2>/dev/null
     echo -e "${GREEN}Done.${NC}"
 }
 

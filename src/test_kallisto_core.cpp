@@ -46,7 +46,7 @@ TEST_F(KallistoCoreTest, BasicReadWrite) {
 // 2. Test Fallback (Cache miss thì kéo từ RocksDB lên)
 // ============================================================================
 TEST_F(KallistoCoreTest, CacheMissFallback) {
-    engine->change_sync_mode(KallistoCore::SyncMode::IMMEDIATE);
+    engine->changeSyncMode(KallistoCore::SyncMode::IMMEDIATE);
     engine->put("/fallback", "key1", "data1");
     
     // Restart engine (hủy vùng nhớ Cache) to simulate memory loss
@@ -94,7 +94,7 @@ TEST_F(KallistoCoreTest, ConcurrencyStressTest) {
                 // Stress testing std::atomic<SyncMode> write
                 if (j % 100 == 0) {
                     auto mode = (j % 2 == 0) ? KallistoCore::SyncMode::BATCH : KallistoCore::SyncMode::IMMEDIATE;
-                    engine->change_sync_mode(mode);
+                    engine->changeSyncMode(mode);
                 }
 
                 if (engine->put(path, key, val)) {
@@ -102,7 +102,7 @@ TEST_F(KallistoCoreTest, ConcurrencyStressTest) {
                 }
 
                 // Stress testing std::atomic<SyncMode> read
-                engine->get_sync_mode(); 
+                engine->getSyncMode(); 
             }
         });
     }

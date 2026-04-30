@@ -1,16 +1,11 @@
 #pragma once
 
-#include "kallisto/net/listener.hpp"
 #include "kallisto/kallisto_core.hpp"
 
 #include <memory>
 #include <string>
-#include <string_view>
 #include <unordered_map>
-#include <vector>
-#include <functional>
 
-#include <functional>
 
 namespace kallisto {
 
@@ -67,6 +62,7 @@ private:
         std::string path;
         std::string body;
         int content_length{0};
+        size_t bytes_consumed{0};
         bool keep_alive{true};
         bool valid{false};
     };

@@ -12,7 +12,7 @@ namespace server {
 class UdsAdminHandler {
 public:
     UdsAdminHandler(std::shared_ptr<KallistoCore> core, 
-                    const std::string& socket_path = "/var/run/kallisto.sock");
+                    const std::string& socket_path = "/var/run/kallisto/kallisto.sock");
     ~UdsAdminHandler();
 
     void start();

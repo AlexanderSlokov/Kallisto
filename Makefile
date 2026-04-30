@@ -4,7 +4,7 @@
 BUILD_DIR = build
 TARGET = kallisto
 VCPKG_ROOT ?= /usr/local/vcpkg
-DB_PATH ?= /data/kallisto/rocksdb
+DB_PATH ?= /kallisto/data
 
 # Modern CMake Toolchain Integration
 CMAKE_FLAGS = -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cmake
@@ -114,7 +114,7 @@ benchmark-multithread: build
 # ===========================================================================
 # Benchmarks (Server - HTTP)
 # ===========================================================================
-bench-server:
+bench-server: clean build-server
 	@bash bench/run_server_bench.sh
 
 bench-http: bench-server
@@ -131,15 +131,18 @@ docker-test:
 
 docker-run:
 	@docker run -d --name kallisto -p 8200:8200 \
-	  -v my-kallisto-data:/data/kallisto/rocksdb kallisto-server:latest
+	  -v my-kallisto-data:/kallisto/data kallisto-server:latest
 
 # ===========================================================================
 # Utilities
 # ===========================================================================
 clean:
 	@rm -rf $(BUILD_DIR)
-	@sudo rm -rf $(DB_PATH)
-	@echo "Build directory cleared."
+	@rm -rf /tmp/kallisto_bench_data
+	@rm -f /tmp/kallisto_bench.log
+	@rm -f /tmp/kallisto*.sock
+	@pkill -x kallisto_server 2>/dev/null || true
+	@echo "Build directory and temp files cleared."
 
 logs:
 	@tail -f kallisto.server.log 2>/dev/null || echo "No logs found."

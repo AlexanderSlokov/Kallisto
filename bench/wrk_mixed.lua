@@ -3,7 +3,7 @@
 --
 -- Usage: wrk -t4 -c100 -d10s -s bench/wrk_mixed.lua http://localhost:8200
 
-counter = 0
+counter = -1
 
 wrk.headers["Content-Type"] = "application/json"
 

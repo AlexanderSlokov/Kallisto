@@ -57,16 +57,23 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,format=short
 
-      # Build & Push the specialized tester image (Optional, but great for CI caching)
-      - name: Build and push tester image
+      # Build the specialized tester image and load it locally for testing
+      - name: Build tester image
         uses: docker/build-push-action@v5
         with:
           context: .
           target: tester
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
+          load: true
+          tags: kallisto-tester:latest
           cache-from: type=gha,scope=tester
           cache-to: type=gha,mode=max,scope=tester
+
+      # Push tester image to registry
+      - name: Push tester image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag kallisto-tester:latest ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tester:latest
 
       # Build & Push the production Server Image
       - name: Build and push Production Image

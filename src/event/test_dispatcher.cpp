@@ -141,7 +141,7 @@ TEST_F(DispatcherTest, DeferredMutationsDuringDispatch) {
 
   // Trigger it
   char byte = 'X';
-  write(sv[0], &byte, 1);
+  ASSERT_EQ(write(sv[0], &byte, 1), 1) << "Failed to write trigger byte to socketpair";
 
   std::thread t([&]() {
     dispatcher_->run();

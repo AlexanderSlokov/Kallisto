@@ -1,11 +1,10 @@
 #include "kallisto/sharded_cuckoo_table.hpp"
-
 #include "kallisto/logger.hpp"
 
 namespace kallisto {
 
 ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
-  size_t items_per_shard = total_capacity / NUM_SHARDS;
+  size_t items_per_shard = total_capacity / num_shards;
 
   // Each bucket in CuckooTable has 8 slots.
   constexpr size_t slots_per_bucket = 8;
@@ -15,7 +14,7 @@ ShardedCuckooTable::ShardedCuckooTable(size_t total_capacity) {
   constexpr size_t min_buckets_per_shard = 64;
   buckets_per_shard = std::max(buckets_per_shard, min_buckets_per_shard);
 
-  info("ShardedCuckooTable: Creating " + std::to_string(NUM_SHARDS) + " shards, " +
+  info("ShardedCuckooTable: Creating " + std::to_string(num_shards) + " shards, " +
        std::to_string(buckets_per_shard) + " buckets for each shard, and " +
        std::to_string(items_per_shard) + " items per shard");
 

@@ -2,10 +2,8 @@
 
 #include <string>
 #include <optional>
-#include <memory>
 #include <cstring>
 #include "kallisto/secret_entry.hpp"
-#include "kallisto/logger.hpp"
 
 #ifdef KALLISTO_HAS_ROCKSDB
 #include <rocksdb/db.h>
@@ -29,7 +27,7 @@ namespace kallisto {
  */
 class RocksDBStorage {
 public:
-    explicit RocksDBStorage(const std::string& db_path = "/data/kallisto/rocksdb");
+    explicit RocksDBStorage(const std::string& db_path = "/kallisto/data");
     ~RocksDBStorage();
 
     // No copy/move — single instance shared via shared_ptr
@@ -59,7 +57,7 @@ public:
      * Useful for rebuilding indices on startup without loading all data into memory.
      * @param callback Function to call for each SecretEntry.
      */
-    void iterate_all(std::function<void(const SecretEntry&)> callback) const;
+    void iterateAll(std::function<void(const SecretEntry&)> callback) const;
 
     /**
      * Force flush WAL to disk (maps to SAVE command).
@@ -71,20 +69,19 @@ public:
      * sync=true  → IMMEDIATE mode (fsync every write, safe)
      * sync=false → BATCH mode (WAL buffered, faster)
      */
-    void set_sync(bool sync);
+    void setSync(bool sync);
 
     /**
      * @return true if the RocksDB instance is open and healthy.
      */
-    bool is_open() const;
+    bool isOpen() const;
 
 private:
 #ifdef KALLISTO_HAS_ROCKSDB
-    rocksdb::DB* db_raw_ = nullptr;  // Raw pointer, RocksDB manages lifetime
+    std::unique_ptr<rocksdb::DB> db_;
     rocksdb::Options options_;
     rocksdb::WriteOptions write_opts_;
     rocksdb::ReadOptions read_opts_;
-    bool db_open_ = false;
 #endif
 
     /**

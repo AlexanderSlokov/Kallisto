@@ -56,11 +56,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wrk \
     curl \
+    iproute2 \
+    procps \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install gcovr --break-system-packages
 
 # Add non-root user for running tests securely
-RUN useradd -m -s /bin/bash kallisto
+RUN useradd -m -s /bin/bash kallisto \
+    && mkdir -p /kallisto/data \
+    && mkdir -p /var/run/kallisto \
+    && chown -R kallisto:kallisto /kallisto \
+    && chown -R kallisto:kallisto /var/run/kallisto
 
 WORKDIR /app
 
@@ -75,21 +81,41 @@ USER kallisto
 CMD ["make", "test"]
 
 # ==============================================================================
-# Phase 3: Production Image (Ultra-small, Ubuntu compatible)
-# Note: Ubuntu 24.04 base image itself is very small (~30MB) and inherently compatible.
-# Using 'noble' (24.04) to match build environment EXACTLY.
+# Phase 3: Production Image
+# Using 'noble' (24.04) to match dev environment
 # ==============================================================================
 FROM ubuntu:24.04 AS production
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Add kallisto user and prepare RocksDB directories
-RUN useradd -m -s /bin/bash kallisto \
-    && mkdir -p /data/kallisto/rocksdb \
-    && chown -R kallisto:kallisto /data/kallisto
+# Create a non-root user to run the software
+RUN groupadd kallisto \
+    && useradd -r -g kallisto -s /bin/bash kallisto
 
-# Set volume for RocksDB persistence
-VOLUME ["/data/kallisto/rocksdb"]
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    libcap2-bin \
+    gosu \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# Prepare log, config, data storage backend and IPC socket directory
+RUN mkdir -p /kallisto/logs \
+    && mkdir -p /kallisto/config \
+    && mkdir -p /kallisto/data \
+    && mkdir -p /var/run/kallisto \
+    && chown -R kallisto:kallisto /kallisto \
+    && chown -R kallisto:kallisto /var/run/kallisto
+
+# Expose the logs directory as a volume since there's potentially long-running
+# state in there
+VOLUME ["/kallisto/logs"]
+
+# Expose the persistent data directory as a volume since there's potentially
+# long-running state in there
+VOLUME ["/kallisto/data"]
 
 WORKDIR /app
 
@@ -101,10 +127,10 @@ COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh \
     && chown kallisto:kallisto /app/kallisto_server /app/entrypoint.sh
 
-# Run as non-root user
+# Use the kallisto user as the default user for starting this container
 USER kallisto
 
-# Expose HTTP (8200)
+# 8200/tcp is the primary interface that applications use to interact with Kallisto
 EXPOSE 8200
 
 ENTRYPOINT ["/app/entrypoint.sh"]

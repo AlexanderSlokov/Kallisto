@@ -7,15 +7,13 @@ services:
     image: ghcr.io/alexanderslokov/kallisto:latest
     container_name: kallisto-server
     ports:
-      - "8200:8200" # HTTP API (Vault compatible)
-      - "8201:8201" # gRPC API
+      - "8200:8200" # HTTP API
     # volumes:
-    #   - kallisto-data:/data/kallisto/rocksdb
+    #   - kallisto-data:/kallisto/data
     environment:
       - WORKERS=4
-      - DB_PATH=/data/kallisto/rocksdb
+      - DB_PATH=/kallisto/data
       - PORT_HTTP=8200
-      - PORT_GRPC=8201
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8200/v1/secret/data/health"]
       interval: 5s

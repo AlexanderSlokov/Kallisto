@@ -21,7 +21,7 @@ TEST(KallistoServerTest, ParseDefaultArgs) {
     
     ServerConfig config = ServerConfig::parseFromArgs(argc, argv);
     EXPECT_EQ(config.http_port, 8200);
-    EXPECT_EQ(config.db_path, "/data/kallisto/rocksdb");
+    EXPECT_EQ(config.db_path, "/kallisto/data");
     
     if (std::thread::hardware_concurrency() != 0) {
         EXPECT_EQ(config.num_workers, std::thread::hardware_concurrency());

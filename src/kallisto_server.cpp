@@ -43,7 +43,8 @@ event::WorkerPoolPtr createWorkerPool(size_t num_workers);
 struct ServerConfig {
     uint16_t http_port = 8200;
     size_t num_workers = 4;
-    std::string db_path = "/data/kallisto/rocksdb";
+    std::string db_path = "/kallisto/data";
+    std::string socket_path = "/var/run/kallisto/kallisto.sock";
 
     static ServerConfig parseFromArgs(int argc, char** argv) {
         ServerConfig config;
@@ -51,8 +52,8 @@ struct ServerConfig {
         // Auto-detect cores
         config.num_workers = std::thread::hardware_concurrency();
         if (config.num_workers == 0) { 
-			config.num_workers = 4;
-		}
+            config.num_workers = 4;
+        }
 
         for (int i = 1; i < argc; i++) {
             std::string arg = argv[i];
@@ -62,6 +63,8 @@ struct ServerConfig {
                 config.num_workers = std::stoul(arg.substr(10));
             } else if (arg.find("--db-path=") == 0) {
                 config.db_path = arg.substr(10);
+            } else if (arg.find("--socket-path=") == 0) {
+                config.socket_path = arg.substr(14);
             }
         }
         return config;
@@ -81,16 +84,18 @@ struct ServerConfig {
         std::cout << "Usage: kallisto_server [options]\n"
                   << "  --http-port=PORT   HTTP port (default: 8200)\n"
                   << "  --workers=N        Number of worker threads (default: CPU cores)\n"
-                  << "  --db-path=PATH     RocksDB data directory (default: /data/kallisto/rocksdb)\n"
+                  << "  --db-path=PATH     RocksDB data directory (default: /kallisto/data)\n"
+                  << "  --socket-path=PATH Admin UDS socket path (default: /var/run/kallisto/kallisto.sock)\n"
                   << std::endl;
     }
 
     void printBanner() const {
         info("========================================");
         info("  Kallisto Secret Server v0.1.0");
-        info("  HTTP port:  " + std::to_string(http_port));
-        info("  Workers:    " + std::to_string(num_workers));
-        info("  DB Path:    " + db_path);
+        info("  HTTP port:    " + std::to_string(http_port));
+        info("  Workers:      " + std::to_string(num_workers));
+        info("  DB Path:      " + db_path);
+        info("  Socket Path:  " + socket_path);
         info("========================================");
     }
 };
@@ -106,7 +111,7 @@ public:
         info("[SERVER] KallistoCore created and initialized with DB path: " + config_.db_path);
         
         worker_pool_ = createWorkerPool(config_.num_workers);
-        uds_admin_ = std::make_unique<server::UdsAdminHandler>(core_);
+        uds_admin_ = std::make_unique<server::UdsAdminHandler>(core_, config_.socket_path);
     }
 
     void start() {
@@ -135,7 +140,7 @@ public:
         uds_admin_->stop();     // Stops accept loops
 
         // Important: Guarantee atomic durability on crash/shutdown
-        core_->force_flush();
+        core_->forceFlush();
         info("[SERVER] KallistoCore flushed.");
         info("[SERVER] Shutdown complete.");
     }

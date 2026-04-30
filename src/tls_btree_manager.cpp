@@ -3,24 +3,24 @@
 
 namespace kallisto {
 
-thread_local std::shared_ptr<const BTreeIndex> TlsBTreeManager::tls_btree_ = nullptr;
-std::mutex TlsBTreeManager::gc_mutex_;
-std::vector<std::shared_ptr<const BTreeIndex>> TlsBTreeManager::gc_queue_;
+thread_local std::shared_ptr<const BTreeIndex> TlsBTreeManager::tls_btree = nullptr;
+std::mutex TlsBTreeManager::gc_mutex;
+std::vector<std::shared_ptr<const BTreeIndex>> TlsBTreeManager::gc_queue;
 
 TlsBTreeManager::TlsBTreeManager(int degree, event::WorkerPool* worker_pool)
     : worker_pool_(worker_pool) {
     master_btree_ = std::make_shared<const BTreeIndex>(degree);
-    tls_btree_ = master_btree_;
+    tls_btree = master_btree_;
     LOG_INFO("[TLS_BTREE] Manager initialized with degree=" + std::to_string(degree));
 }
 
 std::shared_ptr<const BTreeIndex> TlsBTreeManager::getLocalSnapshot() const {
-    if (!tls_btree_) {
+    if (!tls_btree) {
         std::lock_guard lock(const_cast<std::mutex&>(master_mutex_));
-        tls_btree_ = master_btree_;
+        tls_btree = master_btree_;
         LOG_DEBUG("[TLS_BTREE] Thread acquired master snapshot via fallback");
     }
-    return tls_btree_;
+    return tls_btree;
 }
 
 bool TlsBTreeManager::insertPathIfAbsent(const std::string& path) {
@@ -65,18 +65,18 @@ void TlsBTreeManager::dispatchUpdate(const std::shared_ptr<const BTreeIndex>& ne
 }
 
 void TlsBTreeManager::updateLocalSnapshot(std::shared_ptr<const BTreeIndex> new_master) {
-    if (tls_btree_) {
-        std::lock_guard gc_lock(gc_mutex_);
-        gc_queue_.push_back(std::move(tls_btree_));
+    if (tls_btree) {
+        std::lock_guard gc_lock(gc_mutex);
+        gc_queue.push_back(std::move(tls_btree));
     }
-    tls_btree_ = std::move(new_master);
+    tls_btree = std::move(new_master);
 }
 
 void TlsBTreeManager::drainGarbage() {
     std::vector<std::shared_ptr<const BTreeIndex>> to_delete;
     {
-        std::lock_guard<std::mutex> lock(gc_mutex_);
-        to_delete.swap(gc_queue_);
+        std::lock_guard<std::mutex> lock(gc_mutex);
+        to_delete.swap(gc_queue);
     }
     // Deallocation happens here on the writer thread, not the reader hot path
     to_delete.clear();
