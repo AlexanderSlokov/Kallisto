@@ -154,8 +154,8 @@ void KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, cons
         // Zero-blocking, lock-free enqueue (nanosecond scale)
         AsyncOp op{type, key, value};
         while (!async_queue_.enqueue(std::move(op))) {
-            // If queue is full (extreme edge case), yield to consumer
-            std::this_thread::yield();
+            // Queue full -> Backpressure with sleep to avoid burning CPU (busy-wait spinlock)
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
     }
 }
@@ -163,26 +163,25 @@ void KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, cons
 void KvEngine::asyncWorkerLoop() {
     AsyncOp op;
     std::vector<RocksDBStorage::BatchOp> batch;
-    batch.reserve(20000);
+    batch.reserve(1000);
 
     while (async_running_.load(std::memory_order_relaxed)) {
-        bool has_work = false;
+        bool dequeued = false;
         
-        // Drain lock-free queue into batch
-        while (async_queue_.dequeue(op)) {
-            has_work = true;
-            auto btype = (op.type == AsyncOp::Type::PUT) 
-                       ? RocksDBStorage::BatchOp::Type::PUT 
-                       : RocksDBStorage::BatchOp::Type::DEL;
-            batch.push_back({btype, std::move(op.key), std::move(op.value)});
-            
-            // Limit batch size to prevent long RocksDB lock stalls
-            if (batch.size() >= 20000) {
+        // Batch exactly 1000 ops to keep RocksDB inserts smooth and avoid giant allocations
+        for (int i = 0; i < 1000; ++i) {
+            if (async_queue_.dequeue(op)) {
+                dequeued = true;
+                auto btype = (op.type == AsyncOp::Type::PUT) 
+                           ? RocksDBStorage::BatchOp::Type::PUT 
+                           : RocksDBStorage::BatchOp::Type::DEL;
+                batch.push_back({btype, std::move(op.key), std::move(op.value)});
+            } else {
                 break;
             }
         }
         
-        if (has_work) {
+        if (dequeued) {
             rocksdb_persistence_->applyBatch(batch);
             batch.clear();
         } else {
