@@ -87,6 +87,15 @@ else()
     kallisto_log("warn" "RocksDB_FOUND=false - persistence layer disabled")
 endif()
 
+# Expected (Error Handling Contract)
+find_package(tl-expected CONFIG REQUIRED)
+target_link_libraries(kallisto_lib PUBLIC tl::expected)
+
+# FlatBuffers (for future usage, though currently using raw structs for zero-copy)
+find_package(flatbuffers CONFIG REQUIRED)
+target_link_libraries(kallisto_lib PUBLIC flatbuffers::flatbuffers)
+
+
 # Main Executable cli for user
 add_executable(kallisto src/cli.cpp)
 target_link_libraries(kallisto kallisto_lib)

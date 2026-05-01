@@ -1,9 +1,11 @@
 #pragma once
 
-#include "kallisto/secret_entry.hpp"
+#include "kallisto/engine/i_secret_engine.hpp"
 #include <concepts>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <tl/expected.hpp>
 
 namespace kallisto::engine {
 
@@ -14,12 +16,15 @@ namespace kallisto::engine {
  */
 template<typename T>
 concept ValidEngine = requires(T e,
-                               const kallisto::SecretEntry& entry,
-                               const std::string& path,
-                               const std::string& key) {
-    { e.put(entry) } -> std::convertible_to<bool>;
-    { e.get(path, key) } -> std::same_as<std::optional<SecretEntry>>;
-    { e.del(path, key) } -> std::convertible_to<bool>;
+                               std::string_view path,
+                               uint32_t version,
+                               const kallisto::engine::SecretPayload& payload,
+                               std::optional<uint32_t> cas) {
+    { e.read_version(path, version) } -> std::same_as<tl::expected<kallisto::engine::SecretPayload, kallisto::engine::EngineError>>;
+    { e.read_metadata(path) } -> std::same_as<tl::expected<kallisto::engine::KeyMetadata, kallisto::engine::EngineError>>;
+    { e.put_version(path, payload, cas) } -> std::same_as<tl::expected<void, kallisto::engine::EngineError>>;
+    { e.soft_delete(path, version) } -> std::same_as<tl::expected<void, kallisto::engine::EngineError>>;
+    { e.destroy_version(path, version) } -> std::same_as<tl::expected<void, kallisto::engine::EngineError>>;
     { e.engineType() } -> std::convertible_to<std::string>;
 };
 

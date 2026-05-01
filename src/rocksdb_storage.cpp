@@ -103,6 +103,46 @@ bool RocksDBStorage::del(const std::string& key) {
     return true;
 }
 
+bool RocksDBStorage::putRaw(const std::string& key, const std::string& value) {
+    if (!db_) { 
+		return false;
+	}
+    rocksdb::Status status = db_->Put(write_opts_, key, value);
+    if (!status.ok()) {
+        LOG_ERROR("[ROCKSDB] PUT_RAW failed for key '" + key + "': " + status.ToString());
+        return false;
+    }
+    return true;
+}
+
+std::optional<std::string> RocksDBStorage::getRaw(const std::string& key) const {
+    if (!db_) { 
+		return std::nullopt;
+	}
+    std::string raw_value;
+    rocksdb::Status status = db_->Get(read_opts_, key, &raw_value);
+    if (status.IsNotFound()) { 
+		return std::nullopt;
+	}
+    if (!status.ok()) {
+        LOG_ERROR("[ROCKSDB] GET_RAW failed for key '" + key + "': " + status.ToString());
+        return std::nullopt;
+    }
+    return raw_value;
+}
+
+bool RocksDBStorage::delRaw(const std::string& key) {
+    if (!db_) { 
+		return false;
+	}
+    rocksdb::Status status = db_->Delete(write_opts_, key);
+    if (!status.ok()) {
+        LOG_ERROR("[ROCKSDB] DEL_RAW failed for key '" + key + "': " + status.ToString());
+        return false;
+    }
+    return true;
+}
+
 void RocksDBStorage::iterateAll(std::function<void(const SecretEntry&)> callback) const {
     if (!db_) { 
 		return;
@@ -238,6 +278,10 @@ std::optional<SecretEntry> RocksDBStorage::get(const std::string&) const {
 bool RocksDBStorage::del(const std::string&) {
     return false;
 }
+
+bool RocksDBStorage::putRaw(const std::string&, const std::string&) { return false; }
+std::optional<std::string> RocksDBStorage::getRaw(const std::string&) const { return std::nullopt; }
+bool RocksDBStorage::delRaw(const std::string&) { return false; }
 
 void RocksDBStorage::flush() {}
 void RocksDBStorage::set_sync(bool) {}

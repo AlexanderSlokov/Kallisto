@@ -1,17 +1,133 @@
 #include "kallisto/engine/kv_engine.hpp"
 #include "kallisto/rocksdb_storage.hpp"
+#include <chrono>
+#include <cstring>
 
 namespace kallisto::engine {
+
+namespace {
+
+// ==========================================
+// Serialization Helpers
+// ==========================================
+
+std::string serializePayload(const SecretPayload& payload) {
+    std::string buf;
+    buf.reserve(8 + payload.value.size());
+    uint64_t ttl = payload.ttl;
+    buf.append(reinterpret_cast<const char*>(&ttl), sizeof(ttl));
+    buf.append(payload.value);
+    return buf;
+}
+
+std::optional<SecretPayload> deserializePayload(const std::string& data) {
+    if (data.size() < 8) { 
+		return std::nullopt;
+	}
+    SecretPayload p;
+    std::memcpy(&p.ttl, data.data(), 8);
+    p.value = data.substr(8);
+    return p;
+}
+
+std::string serializeMetadata(const KeyMetadata& meta) {
+    std::string buf;
+    size_t size = 4 + 4 + 1 + 8 + 4 + meta.versions.size() * sizeof(VersionState);
+    buf.reserve(size);
+    buf.append(reinterpret_cast<const char*>(&meta.current_version), 4);
+    buf.append(reinterpret_cast<const char*>(&meta.max_versions), 4);
+    buf.append(reinterpret_cast<const char*>(&meta.cas_required), 1);
+    buf.append(reinterpret_cast<const char*>(&meta.delete_version_after_ms), 8);
+    uint32_t v_size = meta.versions.size();
+    buf.append(reinterpret_cast<const char*>(&v_size), 4);
+    if (v_size > 0) {
+        buf.append(reinterpret_cast<const char*>(meta.versions.data()), v_size * sizeof(VersionState));
+    }
+    return buf;
+}
+
+std::optional<KeyMetadata> deserializeMetadata(const std::string& data) {
+    if (data.size() < 21) { 
+		return std::nullopt;
+	}
+    KeyMetadata m;
+    const char* ptr = data.data();
+    std::memcpy(&m.current_version, ptr, 4); ptr += 4;
+    std::memcpy(&m.max_versions, ptr, 4); ptr += 4;
+    std::memcpy(&m.cas_required, ptr, 1); ptr += 1;
+    std::memcpy(&m.delete_version_after_ms, ptr, 8); ptr += 8;
+    uint32_t v_size;
+    std::memcpy(&v_size, ptr, 4); ptr += 4;
+    if (v_size > 0 && data.size() >= 21 + v_size * sizeof(VersionState)) {
+        m.versions.resize(v_size);
+        std::memcpy(m.versions.data(), ptr, v_size * sizeof(VersionState));
+    }
+    return m;
+}
+
+std::string buildMetaKey(std::string_view path) {
+    return "m:" + std::string(path);
+}
+
+std::string buildVersionKey(std::string_view path, uint32_t version) {
+    return "v:" + std::string(path) + ":" + std::to_string(version);
+}
+
+uint64_t nowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+// ==========================================
+// CuckooTable Adapter (Legacy Seam)
+// ==========================================
+
+void cacheRaw(ShardedCuckooTable* cache, const std::string& raw_key, const std::string& serialized) {
+    SecretEntry entry;
+    entry.path = raw_key;
+    entry.key = "";
+    entry.value = serialized;
+    entry.ttl = 0;
+    cache->insert(raw_key, entry);
+}
+
+std::optional<std::string> getCachedRaw(ShardedCuckooTable* cache, const std::string& raw_key) {
+    auto res = cache->lookup(raw_key);
+    if (res) {
+		return res->value;
+	}
+    return std::nullopt;
+}
+
+void uncacheRaw(ShardedCuckooTable* cache, const std::string& raw_key) {
+    cache->remove(raw_key);
+}
+
+std::optional<std::string> readRawOptimistic(RocksDBStorage* db, ShardedCuckooTable* cache, const std::string& key) {
+    if (auto cached = getCachedRaw(cache, key)) {
+        return cached;
+    }
+    if (auto disk = db->getRaw(key)) {
+        cacheRaw(cache, key, *disk);
+        return disk;
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+// ==========================================
+// Engine Implementation
+// ==========================================
 
 KvEngine::KvEngine(const std::string& db_path) {
     storage_ = std::make_unique<ShardedCuckooTable>(default_cuckoo_size);
     path_index_ = std::make_unique<TlsBTreeManager>(default_btree_degree, nullptr);
     rocksdb_persistence_ = std::make_unique<RocksDBStorage>(db_path);
 
-    // Set initial sync mode to RocksDB
     rocksdb_persistence_->setSync(sync_mode_.load(std::memory_order_relaxed) == SyncMode::IMMEDIATE);
 
-    // Rebuild B-Tree index from WAL (RocksDB)
+    // Rebuild B-Tree index from WAL
     rocksdb_persistence_->iterateAll([this](const SecretEntry& entry) {
         path_index_->insertPathIfAbsent(entry.path);
     });
@@ -23,23 +139,7 @@ KvEngine::~KvEngine() {
 }
 
 std::string KvEngine::buildFullKey(const std::string& path, const std::string& key) const {
-    return path + ":" + key;
-}
-
-bool KvEngine::put(const SecretEntry& entry) {
-    std::string full_key = buildFullKey(entry.path, entry.key);
-
-    bool disk_ok = rocksdb_persistence_->put(full_key, entry);
-    if (!disk_ok) { 
-        return false;
-    }
-
-    handleBatchSync();
-
-    storage_->insert(full_key, entry);
-    path_index_->insertPathIfAbsent(entry.path);
-
-    return true;
+    return path + ":" + key; // V1 legacy fallback
 }
 
 void KvEngine::handleBatchSync() {
@@ -54,37 +154,174 @@ void KvEngine::handleBatchSync() {
     }
 }
 
-std::optional<SecretEntry> KvEngine::get(const std::string& path, const std::string& key) {
-    std::string full_key = buildFullKey(path, key);
-
-    // 1. Search in Cache (RAM)
-    auto cached = storage_->lookup(full_key);
-    if (cached.has_value()) {
-        return cached; // Light-speed lookup
-    }
-
-    // 2. Cache Miss -> Read from RocksDB 
-    auto disk = rocksdb_persistence_->get(full_key);
+tl::expected<KeyMetadata, EngineError> KvEngine::read_metadata(std::string_view path) {
+    auto raw = readRawOptimistic(rocksdb_persistence_.get(), storage_.get(), buildMetaKey(path));
+    if (!raw) { 
+		return tl::unexpected(EngineError::NotFound);
+	}
     
-    // 3. Found on Disk -> Warm up the Cache
-    if (disk.has_value()) {
-        storage_->insert(full_key, disk.value());
-        return disk;
-    }
-
-    return std::nullopt;
+    auto meta = deserializeMetadata(*raw);
+    if (!meta) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    
+    return *meta;
 }
 
-bool KvEngine::del(const std::string& path, const std::string& key) {
-    std::string full_key = buildFullKey(path, key);
+tl::expected<SecretPayload, EngineError> KvEngine::read_version(std::string_view path, uint32_t version) {
+    auto meta_res = read_metadata(path);
+    if (!meta_res) { 
+		return tl::unexpected(meta_res.error());
+	}
     
-    bool disk_ok = rocksdb_persistence_->del(full_key);
-    if (!disk_ok) { 
-		return false;
+    KeyMetadata meta = meta_res.value();
+    uint32_t target_version = (version == 0) ? meta.current_version : version;
+    
+    if (target_version == 0 || target_version > meta.current_version) {
+        return tl::unexpected(EngineError::InvalidVersion);
+    }
+    
+    const VersionState* state = nullptr;
+    for (const auto& vs : meta.versions) {
+        if (vs.version_id == target_version) {
+            state = &vs;
+            break;
+        }
+    }
+    
+    if (!state) { 
+		return tl::unexpected(EngineError::InvalidVersion);
+	}
+    if (state->destroyed) { 
+		return tl::unexpected(EngineError::Destroyed);
+	}
+    if (state->deletion_time_ms > 0) { 
+		return tl::unexpected(EngineError::SoftDeleted);
+	}
+    
+    auto raw_payload = readRawOptimistic(rocksdb_persistence_.get(), storage_.get(), buildVersionKey(path, target_version));
+    if (!raw_payload) { 
+		return tl::unexpected(EngineError::StorageError); 
+	}
+    
+    auto payload = deserializePayload(*raw_payload);
+    if (!payload) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    
+    return *payload;
+}
+
+tl::expected<void, EngineError> KvEngine::put_version(std::string_view path, const SecretPayload& payload, std::optional<uint32_t> cas) {
+    std::string mkey = buildMetaKey(path);
+    KeyMetadata meta;
+    
+    if (auto raw_meta = readRawOptimistic(rocksdb_persistence_.get(), storage_.get(), mkey)) {
+        if (auto m = deserializeMetadata(*raw_meta)) { 
+			meta = *m;
+		}
+    }
+    
+    if (cas.has_value() && meta.current_version != cas.value()) { 
+		return tl::unexpected(EngineError::CasMismatch);
+	}
+    
+    meta.current_version++;
+    VersionState vs;
+    vs.version_id = meta.current_version;
+    vs.created_time_ms = nowMs();
+    vs.deletion_time_ms = 0;
+    vs.destroyed = false;
+    meta.versions.push_back(vs);
+    
+    std::string vkey = buildVersionKey(path, vs.version_id);
+    
+    if (!rocksdb_persistence_->putRaw(vkey, serializePayload(payload))) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    cacheRaw(storage_.get(), vkey, serializePayload(payload));
+    
+    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(meta))) { 
+		return tl::unexpected(EngineError::StorageError);
 	}
 
-    storage_->remove(full_key);
-    return true; 
+	cacheRaw(storage_.get(), mkey, serializeMetadata(meta));
+    
+    path_index_->insertPathIfAbsent(std::string(path));
+	
+	handleBatchSync();
+    
+    return {};
+}
+
+tl::expected<void, EngineError> KvEngine::soft_delete(std::string_view path, uint32_t version) {
+    std::string mkey = buildMetaKey(path);
+    auto raw_meta = readRawOptimistic(rocksdb_persistence_.get(), storage_.get(), mkey);
+    if (!raw_meta) { 
+		return tl::unexpected(EngineError::NotFound);
+	}
+    
+    auto meta = deserializeMetadata(*raw_meta);
+    if (!meta) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    
+    bool found = false;
+    for (auto& vs : meta->versions) {
+        if (vs.version_id == version) {
+            vs.deletion_time_ms = nowMs();
+            found = true;
+            break;
+        }
+    }
+    if (!found) { 
+		return tl::unexpected(EngineError::InvalidVersion);
+	}
+    
+    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(*meta))) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
+    handleBatchSync();
+    
+    return {};
+}
+
+tl::expected<void, EngineError> KvEngine::destroy_version(std::string_view path, uint32_t version) {
+    std::string mkey = buildMetaKey(path);
+    auto raw_meta = readRawOptimistic(rocksdb_persistence_.get(), storage_.get(), mkey);
+    if (!raw_meta) { 
+		return tl::unexpected(EngineError::NotFound);
+	}
+    
+    auto meta = deserializeMetadata(*raw_meta);
+    if (!meta) { 
+		return tl::unexpected(EngineError::StorageError);
+	}
+    
+    bool found = false;
+    for (auto& vs : meta->versions) {
+        if (vs.version_id == version) {
+            vs.destroyed = true;
+            found = true;
+            break;
+        }
+    }
+    if (!found) { 
+		return tl::unexpected(EngineError::InvalidVersion);
+	}
+    
+    std::string vkey = buildVersionKey(path, version);
+    rocksdb_persistence_->delRaw(vkey);
+    uncacheRaw(storage_.get(), vkey);
+    
+    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(*meta))) {
+        return tl::unexpected(EngineError::StorageError);
+    }
+    cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
+    handleBatchSync();
+    
+    return {};
 }
 
 void KvEngine::changeSyncMode(SyncMode mode) {

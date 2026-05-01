@@ -10,7 +10,9 @@
     "spdlog",
     "fmt",
     "nlohmann-json",
-    "abseil"
+    "abseil",
+    "tl-expected",
+    "flatbuffers"
   ],
   "overrides": [
     { "name": "rocksdb",      "version": "10.4.2"    },

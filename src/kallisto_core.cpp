@@ -16,22 +16,35 @@ KallistoCore::~KallistoCore() {
 
 bool KallistoCore::put(const std::string& path, const std::string& key,
                        const std::string& value, uint64_t ttl_secs) {
-    SecretEntry entry;
-    entry.key = key;
-    entry.value = value;
-    entry.path = path;
-    entry.ttl = static_cast<uint32_t>(ttl_secs);
-    entry.created_at = std::chrono::system_clock::now();
-    return default_kv_engine_->put(entry);
+    engine::SecretPayload payload{value, ttl_secs};
+    auto res = default_kv_engine_->put_version(path + "/" + key, payload);
+    return res.has_value();
 }
 
 std::optional<SecretEntry> KallistoCore::get(const std::string& path,
                                               const std::string& key) {
-    return default_kv_engine_->get(path, key);
+    auto res = default_kv_engine_->read_version(path + "/" + key, 0);
+    if (!res) { 
+		return std::nullopt;
+	}
+    
+    SecretEntry entry;
+    entry.path = path;
+    entry.key = key;
+    entry.value = res->value;
+    entry.ttl = res->ttl;
+    return entry;
 }
 
 bool KallistoCore::del(const std::string& path, const std::string& key) {
-    return default_kv_engine_->del(path, key);
+    auto meta = default_kv_engine_->read_metadata(path + "/" + key);
+    if (!meta) { 
+		return false;
+	}
+
+    auto res = default_kv_engine_->destroy_version(path + "/" + key, meta->current_version);
+    
+	return res.has_value();
 }
 
 void KallistoCore::changeSyncMode(SyncMode mode) {

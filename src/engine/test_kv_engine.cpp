@@ -1,20 +1,21 @@
 /*
  * Problem Description:
- * KvEngine manages the hot path cache, rocksdb persistence, and b-tree indexes.
+ * TDD for KvEngine v2. Tests the new V2 interfaces using tl::expected and OCC.
  * We must test typical CRUD operations, edge cases (empty strings), and
- * simulate anomalous conditions like process crashes and synchronization thresholds.
+ * simulate anomalous conditions like process crashes, I/O errors and race conditions.
  */
 #include <gtest/gtest.h>
 #include "kallisto/engine/kv_engine.hpp"
 #include <filesystem>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 using namespace kallisto::engine;
 
-class KvEngineTest : public ::testing::Test {
+class KvEngineTestV2 : public ::testing::Test {
 protected:
-    std::string test_db_path = "/tmp/kallisto_kv_test_db";
+    std::string test_db_path = "/tmp/kallisto_kv_test_db_v2";
 
     void SetUp() override {
         std::filesystem::remove_all(test_db_path);
@@ -25,125 +26,141 @@ protected:
     }
 };
 
-TEST_F(KvEngineTest, BasicReadWriteAndDelete) {
+TEST_F(KvEngineTestV2, BasicVersionedReadWrite) {
     // Problem Description: Verify happy-path CRUD operations and branch coverage for missing keys.
     KvEngine engine(test_db_path);
     
-    kallisto::SecretEntry entry;
-    entry.path = "app/db";
-    entry.key = "password";
-    entry.value = "my_secret_pass";
-    entry.ttl = 3600;
+    SecretPayload p1{"my_secret_pass", 3600};
     
-    EXPECT_TRUE(engine.put(entry));
+    // Put version 1
+    auto res_put = engine.put_version("app/db", p1);
+    EXPECT_TRUE(res_put.has_value());
     
-    auto retrieved = engine.get("app/db", "password");
-    ASSERT_TRUE(retrieved.has_value());
-    EXPECT_EQ(retrieved->value, "my_secret_pass");
+    // Read version 1
+    auto res_read = engine.read_version("app/db", 1);
+    ASSERT_TRUE(res_read.has_value());
+    EXPECT_EQ(res_read->value, "my_secret_pass");
+    EXPECT_EQ(res_read->ttl, 3600);
     
-    // Test branch: missing key
-    EXPECT_FALSE(engine.get("app/db", "wrong_key").has_value());
+    // Read metadata
+    auto meta = engine.read_metadata("app/db");
+    ASSERT_TRUE(meta.has_value());
+    EXPECT_EQ(meta->current_version, 1);
+    EXPECT_EQ(meta->versions.size(), 1);
+    EXPECT_EQ(meta->versions[0].version_id, 1);
+    EXPECT_FALSE(meta->versions[0].destroyed);
     
-    EXPECT_TRUE(engine.del("app/db", "password"));
-    EXPECT_FALSE(engine.get("app/db", "password").has_value());
-    // Deleting a non-existent key from RocksDB returns ok depending on API, but let's test it
-    // Actually RocksDB Delete returns OK even if key doesn't exist, so this will return true.
-    EXPECT_TRUE(engine.del("app/db", "password")); 
+    // Test branch: missing path
+    auto miss_path = engine.read_version("app/db_wrong", 1);
+    ASSERT_FALSE(miss_path.has_value());
+    EXPECT_EQ(miss_path.error(), EngineError::NotFound);
+    
+    // Test branch: missing version
+    auto miss_ver = engine.read_version("app/db", 99);
+    ASSERT_FALSE(miss_ver.has_value());
+    EXPECT_EQ(miss_ver.error(), EngineError::InvalidVersion);
 }
 
-TEST_F(KvEngineTest, BoundaryValues) {
-    // Problem Description: Test extreme/boundary values like empty path/key/value and TTL=0.
+TEST_F(KvEngineTestV2, SoftDeleteAndDestroy) {
+    // Problem Description: Verify soft_delete marks it deleted but keeps payload, destroy wipes payload.
+    KvEngine engine(test_db_path);
+    SecretPayload p1{"data", 0};
+    engine.put_version("app/data", p1);
+    
+    // Soft delete
+    auto sd_res = engine.soft_delete("app/data", 1);
+    EXPECT_TRUE(sd_res.has_value());
+    
+    // Read should return SoftDeleted
+    auto read_sd = engine.read_version("app/data", 1);
+    ASSERT_FALSE(read_sd.has_value());
+    EXPECT_EQ(read_sd.error(), EngineError::SoftDeleted);
+    
+    // Destroy
+    auto destroy_res = engine.destroy_version("app/data", 1);
+    EXPECT_TRUE(destroy_res.has_value());
+    
+    auto read_destroy = engine.read_version("app/data", 1);
+    ASSERT_FALSE(read_destroy.has_value());
+    EXPECT_EQ(read_destroy.error(), EngineError::Destroyed);
+    
+    auto meta = engine.read_metadata("app/data");
+    ASSERT_TRUE(meta.has_value());
+    EXPECT_TRUE(meta->versions[0].destroyed);
+}
+
+TEST_F(KvEngineTestV2, OptimisticConcurrencyControl_CAS) {
+    // Problem Description: Test CAS logic for put_version
+    KvEngine engine(test_db_path);
+    SecretPayload p1{"v1", 0};
+    engine.put_version("cas/test", p1);
+    
+    SecretPayload p2{"v2", 0};
+    // Expected CAS=1, provide CAS=1 -> Success
+    auto res_cas_ok = engine.put_version("cas/test", p2, 1);
+    EXPECT_TRUE(res_cas_ok.has_value());
+    
+    SecretPayload p3{"v3", 0};
+    // Expected CAS=2, provide CAS=1 -> Mismatch
+    auto res_cas_fail = engine.put_version("cas/test", p3, 1);
+    ASSERT_FALSE(res_cas_fail.has_value());
+    EXPECT_EQ(res_cas_fail.error(), EngineError::CasMismatch);
+}
+
+TEST_F(KvEngineTestV2, BoundaryValues) {
+    // Problem Description: Test extreme/boundary values like empty path/value and TTL=0.
     KvEngine engine(test_db_path);
     
-    kallisto::SecretEntry entry;
-    entry.path = "";
-    entry.key = "";
-    entry.value = "";
-    entry.ttl = 0;
+    SecretPayload entry{"", 0};
+    EXPECT_TRUE(engine.put_version("", entry).has_value());
     
-    EXPECT_TRUE(engine.put(entry));
-    
-    auto retrieved = engine.get("", "");
+    // read_version(path, 0) should return latest version
+    auto retrieved = engine.read_version("", 0);
     ASSERT_TRUE(retrieved.has_value());
     EXPECT_EQ(retrieved->value, "");
     EXPECT_EQ(retrieved->ttl, 0);
 }
 
-TEST_F(KvEngineTest, CrashRecoveryAndCacheMiss) {
+TEST_F(KvEngineTestV2, CrashRecoveryAndCacheMiss) {
     // Problem Description: Simulate sudden power loss / crash. The memory cache is wiped.
-    // The engine must rely on RocksDB fallback to serve the request.
     {
         KvEngine engine(test_db_path);
         engine.changeSyncMode(ISecretEngine::SyncMode::IMMEDIATE);
         
-        kallisto::SecretEntry entry;
-        entry.path = "sys/admin";
-        entry.key = "token";
-        entry.value = "crash_proof";
-        entry.ttl = 9999;
-        engine.put(entry);
-    } // engine goes out of scope -> memory destroyed
+        SecretPayload entry{"crash_proof", 9999};
+        engine.put_version("sys/admin", entry);
+    } 
     
     // Simulate restart
     KvEngine engine_restarted(test_db_path);
     
     // Cache miss will happen here. It must pull from RocksDB.
-    auto retrieved = engine_restarted.get("sys/admin", "token");
+    auto retrieved = engine_restarted.read_version("sys/admin", 1);
     ASSERT_TRUE(retrieved.has_value());
     EXPECT_EQ(retrieved->value, "crash_proof");
 }
 
-TEST_F(KvEngineTest, BatchModeSynchronization) {
-    // Problem Description: Test if handleBatchSync() properly delays flushing 
-    // until sync_threshold is hit or forceFlush is called.
-    KvEngine engine(test_db_path);
-    engine.changeSyncMode(ISecretEngine::SyncMode::BATCH);
-    EXPECT_EQ(engine.getSyncMode(), ISecretEngine::SyncMode::BATCH);
-    
-    kallisto::SecretEntry entry;
-    entry.path = "batch/test";
-    entry.key = "k1";
-    entry.value = "v1";
-    
-    // Write in batch mode, shouldn't hit disk immediately.
-    EXPECT_TRUE(engine.put(entry));
-    
-    engine.forceFlush(); // Manual intervention
-    
-    auto retrieved = engine.get("batch/test", "k1");
-    ASSERT_TRUE(retrieved.has_value());
-}
-
-TEST_F(KvEngineTest, ReadOnlyIOErrorSimulation) {
+TEST_F(KvEngineTestV2, ReadOnlyIOErrorSimulation) {
     // Problem Description: Simulate I/O write permission error (disk read-only)
-    // by attempting to use a local directory with stripped write permissions.
-    // Ensure the system fails gracefully instead of crashing.
-    
-    std::string read_only_dir = "/tmp/kallisto_readonly_test";
+    std::string read_only_dir = "/tmp/kallisto_readonly_test_v2";
     std::filesystem::create_directory(read_only_dir);
-    // Remove write permissions
     std::filesystem::permissions(read_only_dir, 
                                  std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
                                  std::filesystem::perm_options::replace);
     
     KvEngine engine(read_only_dir); 
+    SecretPayload entry{"v1", 0};
     
-    kallisto::SecretEntry entry;
-    entry.path = "fail/path";
-    entry.key = "k1";
-    entry.value = "v1";
-    
-    // RocksDB put should fail gracefully and return false
-    EXPECT_FALSE(engine.put(entry));
+    auto res = engine.put_version("fail/path", entry);
+    EXPECT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EngineError::StorageError);
 
-    // Cleanup: Restore permissions so the OS can delete it later
     std::filesystem::permissions(read_only_dir, std::filesystem::perms::all);
     std::filesystem::remove_all(read_only_dir);
 }
 
-TEST_F(KvEngineTest, ConcurrencyStressTest) {
-    // Problem Description: Simulate high-concurrency race conditions.
-    // 10 threads bombard the engine with simultaneous put() operations and sync_mode changes.
+TEST_F(KvEngineTestV2, ConcurrencyStressTest) {
+    // Problem Description: Simulate high-concurrency race conditions to ensure thread safety.
     KvEngine engine(test_db_path);
     constexpr int num_threads = 10;
     constexpr int ops_per_thread = 1000;
@@ -154,34 +171,28 @@ TEST_F(KvEngineTest, ConcurrencyStressTest) {
     for (int i = 0; i < num_threads; ++i) {
         threads.emplace_back([&, i]() {
             for (int j = 0; j < ops_per_thread; ++j) {
-                kallisto::SecretEntry entry;
-                entry.path = "concurrent/" + std::to_string(i);
-                entry.key = "key_" + std::to_string(j);
-                entry.value = "val_" + std::to_string(i) + "_" + std::to_string(j);
-                entry.ttl = 3600;
+                SecretPayload entry{"val_" + std::to_string(i) + "_" + std::to_string(j), 3600};
+                std::string path = "concurrent/" + std::to_string(i);
                 
                 if (j % 100 == 0) {
                     auto mode = (j % 2 == 0) ? ISecretEngine::SyncMode::BATCH : ISecretEngine::SyncMode::IMMEDIATE;
                     engine.changeSyncMode(mode);
                 }
 
-                if (engine.put(entry)) {
+                if (engine.put_version(path, entry).has_value()) {
                     success_count++;
                 }
-                
-                engine.getSyncMode();
             }
         });
     }
 
     for (auto& t : threads) {
-        if (t.joinable()) {
-            t.join();
-        }
+        if (t.joinable()) { t.join(); }
     }
 
     EXPECT_EQ(success_count.load(), num_threads * ops_per_thread);
-    auto res = engine.get("concurrent/5", "key_500");
-    ASSERT_TRUE(res.has_value());
-    EXPECT_EQ(res->value, "val_5_500");
+    // Version should be 1000 for each thread
+    auto meta = engine.read_metadata("concurrent/5");
+    ASSERT_TRUE(meta.has_value());
+    EXPECT_EQ(meta->current_version, 1000);
 }

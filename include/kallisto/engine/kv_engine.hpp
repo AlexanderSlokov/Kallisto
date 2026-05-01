@@ -25,11 +25,12 @@ public:
     explicit KvEngine(const std::string& db_path = "/var/lib/kallisto/data");
     ~KvEngine() override;
 
-    // --- ISecretEngine interface ---
-    bool put(const SecretEntry& entry) override;
-    std::optional<SecretEntry> get(const std::string& path,
-                                   const std::string& key) override;
-    bool del(const std::string& path, const std::string& key) override;
+    // --- ISecretEngine interface (V2) ---
+    tl::expected<SecretPayload, EngineError> read_version(std::string_view path, uint32_t version = 0) override;
+    tl::expected<KeyMetadata, EngineError> read_metadata(std::string_view path) override;
+    tl::expected<void, EngineError> put_version(std::string_view path, const SecretPayload& payload, std::optional<uint32_t> cas = std::nullopt) override;
+    tl::expected<void, EngineError> soft_delete(std::string_view path, uint32_t version) override;
+    tl::expected<void, EngineError> destroy_version(std::string_view path, uint32_t version) override;
     std::string engineType() const override { return "kv"; }
 
     void changeSyncMode(SyncMode mode) override;
