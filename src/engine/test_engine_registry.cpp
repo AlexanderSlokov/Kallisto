@@ -12,9 +12,11 @@ using namespace kallisto::engine;
 
 class MockEngine : public ISecretEngine {
 public:
-    MOCK_METHOD(bool, put, (const kallisto::SecretEntry&), (override));
-    MOCK_METHOD(std::optional<kallisto::SecretEntry>, get, (const std::string&, const std::string&), (override));
-    MOCK_METHOD(bool, del, (const std::string&, const std::string&), (override));
+    MOCK_METHOD((tl::expected<SecretPayload, EngineError>), read_version, (std::string_view, uint32_t), (override));
+    MOCK_METHOD((tl::expected<KeyMetadata, EngineError>), read_metadata, (std::string_view), (override));
+    MOCK_METHOD((tl::expected<void, EngineError>), put_version, (std::string_view, const SecretPayload&, std::optional<uint32_t>), (override));
+    MOCK_METHOD((tl::expected<void, EngineError>), soft_delete, (std::string_view, uint32_t), (override));
+    MOCK_METHOD((tl::expected<void, EngineError>), destroy_version, (std::string_view, uint32_t), (override));
     MOCK_METHOD(std::string, engineType, (), (const, override));
     MOCK_METHOD(void, changeSyncMode, (SyncMode), (override));
     MOCK_METHOD(SyncMode, getSyncMode, (), (const, override));

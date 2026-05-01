@@ -65,7 +65,7 @@ TEST_F(KvEngineTestV2, SoftDeleteAndDestroy) {
     // Problem Description: Verify soft_delete marks it deleted but keeps payload, destroy wipes payload.
     KvEngine engine(test_db_path);
     SecretPayload p1{"data", 0};
-    engine.put_version("app/data", p1);
+    ASSERT_TRUE(engine.put_version("app/data", p1).has_value());
     
     // Soft delete
     auto sd_res = engine.soft_delete("app/data", 1);
@@ -93,7 +93,7 @@ TEST_F(KvEngineTestV2, OptimisticConcurrencyControl_CAS) {
     // Problem Description: Test CAS logic for put_version
     KvEngine engine(test_db_path);
     SecretPayload p1{"v1", 0};
-    engine.put_version("cas/test", p1);
+    ASSERT_TRUE(engine.put_version("cas/test", p1).has_value());
     
     SecretPayload p2{"v2", 0};
     // Expected CAS=1, provide CAS=1 -> Success
@@ -128,7 +128,7 @@ TEST_F(KvEngineTestV2, CrashRecoveryAndCacheMiss) {
         engine.changeSyncMode(ISecretEngine::SyncMode::IMMEDIATE);
         
         SecretPayload entry{"crash_proof", 9999};
-        engine.put_version("sys/admin", entry);
+        ASSERT_TRUE(engine.put_version("sys/admin", entry).has_value());
     } 
     
     // Simulate restart
