@@ -173,17 +173,21 @@ add_test(NAME KallistoServerTest COMMAND test_kallisto_server)
 # ===========================================================================
 # Benchmark Tools & Utils
 # ===========================================================================
-add_executable(bench_p99 benchmarks/bench_p99.cpp)
+
+# Core micro-benchmarks (latency, throughput, multi-thread)
+add_executable(bench_p99 benchmarks/core/bench_p99.cpp)
 target_link_libraries(bench_p99 kallisto_lib)
 
-add_executable(bench_dos benchmarks/bench_dos.cpp)
+add_executable(bench_multithread benchmarks/core/bench_multithread.cpp)
+target_link_libraries(bench_multithread kallisto_lib)
+
+# Security benchmarks (DoS, hash flooding)
+add_executable(bench_dos benchmarks/security/bench_dos.cpp)
 target_link_libraries(bench_dos kallisto_lib)
 
-add_executable(repro_crash benchmarks/repro_crash.cpp)
+# Diagnostic tools (crash repro, stress tests)
+add_executable(repro_crash benchmarks/diagnostic/repro_crash.cpp)
 target_link_libraries(repro_crash kallisto_lib)
-
-add_executable(bench_multithread benchmarks/bench_multithread.cpp)
-target_link_libraries(bench_multithread kallisto_lib)
 
 # ===========================================================================
 # HTTP Server

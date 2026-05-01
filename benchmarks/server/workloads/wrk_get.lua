@@ -1,7 +1,7 @@
 -- wrk_get.lua: Pure READ benchmark for Kallisto Server
 -- Pre-requisite: Server must be seeded with secrets at /v1/secret/data/bench/s0..s999
 --
--- Usage: wrk -t4 -c100 -d10s -s bench/wrk_get.lua http://localhost:8200
+-- Usage: wrk -t4 -c100 -d10s -s benchmarks/server/workloads/wrk_get.lua http://localhost:8200
 
 counter = -1
 

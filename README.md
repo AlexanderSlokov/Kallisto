@@ -304,9 +304,9 @@ Benchmark tool: **`wrk`** for Kallisto (HTTP/1.1).
 # Kallisto — wrk (6 threads, 200 connections, 10s)
 # Note: Using Docker host network mode (--network host) to bypass bridge overhead
 make bench-server
-# → runs: wrk -t6 -c200 -d10s -s bench/wrk_get.lua   http://localhost:8200
-# → runs: wrk -t6 -c200 -d10s -s bench/wrk_put.lua   http://localhost:8200
-# → runs: wrk -t6 -c200 -d10s -s bench/wrk_mixed.lua http://localhost:8200
+# → runs: wrk -t6 -c200 -d10s -s benchmarks/server/workloads/wrk_get.lua   http://localhost:8200
+# → runs: wrk -t6 -c200 -d10s -s benchmarks/server/workloads/wrk_put.lua   http://localhost:8200
+# → runs: wrk -t6 -c200 -d10s -s benchmarks/server/workloads/wrk_mixed.lua http://localhost:8200
 ```
 
 ### Results (as of 14/04/2026, with Lock-free B-Tree RCU + RocksDB + Host Network)

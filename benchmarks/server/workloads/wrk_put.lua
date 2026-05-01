@@ -1,7 +1,7 @@
 -- wrk_put.lua: Pure WRITE benchmark for Kallisto Server
 -- Tests POST /v1/secret/data/<path> with JSON body
 --
--- Usage: wrk -t4 -c100 -d10s -s bench/wrk_put.lua http://localhost:8200
+-- Usage: wrk -t4 -c100 -d10s -s benchmarks/server/workloads/wrk_put.lua http://localhost:8200
 
 counter = -1
 
