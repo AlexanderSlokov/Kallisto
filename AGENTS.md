@@ -26,3 +26,118 @@ For C++-specific guidance, focus on the following areas (reference recognized st
 - **Testing**: Use mainstream frameworks; write simple, fast, deterministic tests that document behavior; include characterization tests for legacy; focus on critical paths.
 - **Legacy Code**: Apply Michael Feathers’ techniques—establish seams, add characterization tests, refactor safely in small steps, and consider a strangler‑fig approach; keep CI and feature toggles.
 - **Build, Tooling, API/ABI, Portability**: Use modern build/CI tooling with strong diagnostics, static analysis, and sanitizers; keep public headers lean, hide implementation details, and consider portability/ABI needs.
+
+---
+
+# Kallisto Architecture Reference
+
+> **Purpose:** Persistent context for all future sessions. Read this before modifying any core component.
+
+## Architecture: Hexagonal (Port/Adapter)
+
+Kallisto follows a **Hexagonal Architecture** with a **Strangler Fig** migration strategy. The original monolithic `KallistoCore` was refactored into a thin **Facade** that delegates to an **EngineRegistry** of pluggable **ISecretEngine** implementations.
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **`virtual` dispatch + `final` on concrete classes** | MACM analysis proved vtable overhead is ~8ns (~0.3% of total request latency). `final` enables compiler devirtualization. |
+| **`ISecretEngine::put(const SecretEntry&)` (DTO parameter)** | Clean Code: max 2 params per function. The original 4-param signature violated this rule. |
+| **`EngineRegistry` uses `shared_ptr`** | Engines are mounted at startup and shared across threads. `shared_ptr` provides safe co-ownership. |
+| **`KallistoCore` as Facade** | Zero breaking changes. All existing consumers (`HttpHandler`, `UdsAdminHandler`, tests) use the unchanged `KallistoCore` API. |
+| **C++20 `concept ValidEngine`** | Compile-time safety net. Any new engine that doesn't satisfy the contract fails to build via `static_assert`. |
+
+## Directory Structure (Engine Layer)
+
+```
+include/kallisto/engine/
+├── engine_concept.hpp      # C++20 concept ValidEngine
+├── i_secret_engine.hpp     # Port interface (abstract base)
+├── engine_registry.hpp     # Router: prefix → engine mapping
+└── kv_engine.hpp           # KV engine (first concrete impl)
+
+src/engine/
+├── kv_engine.cpp           # KV engine implementation
+├── engine_registry.cpp     # Registry implementation
+├── test_kv_engine.cpp      # KvEngine test suite
+└── test_engine_registry.cpp # EngineRegistry test suite (GMock)
+```
+
+## Core Components
+
+### ISecretEngine (Port Interface)
+- **Location:** `include/kallisto/engine/i_secret_engine.hpp`
+- Pure virtual interface. All engines implement this.
+- Methods: `put(SecretEntry)`, `get(path, key)`, `del(path, key)`, `engineType()`, `changeSyncMode()`, `getSyncMode()`, `forceFlush()`
+- `SyncMode` enum: `IMMEDIATE` (fsync per write) or `BATCH` (deferred flush with threshold).
+
+### KvEngine (Concrete Engine)
+- **Location:** `include/kallisto/engine/kv_engine.hpp`, `src/engine/kv_engine.cpp`
+- Marked `final` to enable devirtualization.
+- Owns: `ShardedCuckooTable` (RAM cache), `RocksDBStorage` (persistence), `TlsBTreeManager` (path index).
+- `handleBatchSync()`: Extracted helper for lock-free batch flush logic (CAS-based stampede prevention).
+- On destruction, calls `forceFlush()` to guarantee durability.
+
+### EngineRegistry (Router)
+- **Location:** `include/kallisto/engine/engine_registry.hpp`, `src/engine/engine_registry.cpp`
+- `mount(prefix, engine)`: Register an engine at a string prefix.
+- `resolve(prefix)`: O(1) lookup via `unordered_map`. Returns raw pointer (non-owning).
+- `flushAll()`: Broadcasts flush to all mounted engines (used during shutdown).
+- Thread safety: `mutex_` guards mount/unmount (rare admin ops), reads are lock-free.
+
+### KallistoCore (Facade)
+- **Location:** `include/kallisto/kallisto_core.hpp`, `src/kallisto_core.cpp`
+- Constructs a `KvEngine` and mounts it at prefix `"secret"` in the registry.
+- Exposes `registry()` for direct access to `EngineRegistry` (future use by `HttpHandler`).
+- `default_kv_engine_`: Non-owning raw pointer shortcut to avoid registry lookup on every call.
+
+### ValidEngine (C++20 Concept)
+- **Location:** `include/kallisto/engine/engine_concept.hpp`
+- Validates at compile time: `put(SecretEntry)`, `get(path, key)`, `del(path, key)`, `engineType()`.
+- Used with `static_assert(ValidEngine<KvEngine>)` in `kv_engine.hpp`.
+
+## Server Architecture (Envoy-style)
+
+- **SO_REUSEPORT**: Each `Worker` binds and accepts on its own socket. Kernel load-balances.
+- **KallistoServerApp**: Orchestrates lifecycle — constructs `KallistoCore`, creates `WorkerPool`, binds HTTP listeners, handles OS signals (`SIGINT`/`SIGTERM`).
+- **HttpHandler**: Parses HTTP requests, routes to `KallistoCore` facade. Currently hardcoded to `/v1/secret/data/` prefix.
+- **UdsAdminHandler**: Unix Domain Socket for admin commands (sync mode, flush, etc.).
+
+## Storage Layer
+
+| Component | Purpose | Thread Safety |
+|-----------|---------|---------------|
+| `ShardedCuckooTable` | 64-shard lock-free in-memory hash table (SipHash distribution) | Per-shard locking |
+| `CuckooTable` | Single-shard open-addressing hash with cuckoo displacement | Mutex per table |
+| `RocksDBStorage` | Durable persistence (WAL + SST) | RocksDB internal locking |
+| `TlsBTreeManager` | RCU-based B-Tree for path prefix enumeration | Thread-local + RCU |
+
+## Testing Conventions
+
+- **Framework:** Google Test + Google Mock.
+- **Test file co-location:** Tests live alongside sources (e.g., `src/engine/test_kv_engine.cpp`).
+- **Test registration:** Each test is a CMake `add_test()` target linked against `kallisto_lib`.
+- **Coverage target:** `make coverage` — builds with `-DENABLE_COVERAGE=ON`, runs all tests, generates `gcovr` HTML report.
+- **I/O error simulation:** Use local read-only directories (`std::filesystem::permissions` with `perm_options::replace`). **Never** use system paths like `/sys` or `/proc` in tests.
+- **Concurrency tests:** Use `threads.reserve(N)` before `emplace_back` loops. Always brace `if` bodies.
+
+## Build System
+
+- **CMake** with vcpkg for dependency management.
+- **Key targets:** `kallisto_lib` (static library), `kallisto_server` (production binary), `test_*` (test binaries), `bench_*` (benchmarks).
+- **Dependencies:** RocksDB, Google Test/Mock, nlohmann-json, simdjson, spdlog, fmt, benchmark.
+- **C++ Standard:** C++20 (`-std=c++20`).
+
+## CI/CD
+
+- **GitHub Actions:** `.github/workflows/alpha-publish.yml`
+- **Docker images:** Multi-stage build with `tester` and `production` targets.
+- **Tags:** `1.0.0-alpha` (production), `1.0.0-alpha-tester` (test image).
+- **Registry:** `ghcr.io` (GitHub Container Registry).
+
+## Important Caveats
+
+1. **`KallistoCore::put()` still takes 4 params** (path, key, value, ttl) for backward compatibility. It constructs a `SecretEntry` internally and delegates to `KvEngine::put(SecretEntry)`.
+2. **`EngineRegistry::resolve()` does NOT lock.** It assumes engines are only mounted at startup. If runtime mount/unmount is needed later, add read-write locking.
+3. **`HttpHandler` currently hardcodes `/v1/secret/data/`** as the engine prefix. The next task (P1) is to refactor it to dynamically extract engine prefixes and route via `EngineRegistry::resolve()`.
+4. **`SecretEntry` is a plain struct** (no virtuals, no inheritance). It is used as a DTO across all layers.
