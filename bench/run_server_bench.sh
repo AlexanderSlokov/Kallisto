@@ -52,16 +52,13 @@ NC='\033[0m'
 
 banner() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${BOLD}     KALLISTO SERVER LOAD TEST (wrk)                          ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Total Cores:" "$TOTAL_CORES"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "wrk Threads:" "$THREADS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Kal Workers:" "$WORKERS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Connections:" "$CONNECTIONS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Duration:" "$DURATION"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Socket Path:" "$KALLISTO_SOCKET"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}     KALLISTO SERVER LOAD TEST (wrk) ${NC}"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Total Cores:" "$TOTAL_CORES"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "wrk Threads:" "$THREADS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Kal Workers:" "$WORKERS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Connections:" "$CONNECTIONS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Duration:" "$DURATION"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Socket Path:" "$KALLISTO_SOCKET"
     echo ""
 }
 

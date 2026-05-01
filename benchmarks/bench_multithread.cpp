@@ -16,7 +16,6 @@
 #include <chrono>
 #include <iomanip>
 #include <random>
-#include <thread>
 #include <latch>
 #include <cmath>
 
@@ -39,22 +38,22 @@ struct BenchResult {
     uint64_t writes;
     uint64_t hits;
     
-    double ops_per_sec() const { return total_ops / elapsed_sec; }
-    double read_rps() const { return reads / elapsed_sec; }
-    double write_rps() const { return writes / elapsed_sec; }
-    double hit_rate() const { return reads > 0 ? 100.0 * hits / reads : 0; }
+    double opsPerSec() const { return total_ops / elapsed_sec; }
+    double readRps() const { return reads / elapsed_sec; }
+    double writeRps() const { return writes / elapsed_sec; }
+    double hitRate() const { return reads > 0 ? 100.0 * hits / reads : 0; }
 };
 
-void print_result(const std::string& name, const BenchResult& r) {
+void printResult(const std::string& name, const BenchResult& r) {
     std::cout << "\n--- " << name << " ---\n";
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "Time: " << r.elapsed_sec << "s | Total Ops: " << r.total_ops << "\n";
     std::cout << "Reads: " << r.reads << " | Writes: " << r.writes << "\n";
-    std::cout << "Hit Rate: " << r.hit_rate() << "%\n";
+    std::cout << "Hit Rate: " << r.hitRate() << "%\n";
     std::cout << std::setprecision(0);
-    std::cout << "Total RPS: " << r.ops_per_sec() << " req/s\n";
-    std::cout << "Read RPS:  " << r.read_rps() << " req/s\n";
-    std::cout << "Write RPS: " << r.write_rps() << " req/s\n";
+    std::cout << "Total RPS: " << r.opsPerSec() << " req/s\n";
+    std::cout << "Read RPS:  " << r.readRps() << " req/s\n";
+    std::cout << "Write RPS: " << r.writeRps() << " req/s\n";
 }
 
 // Zipf distribution generator (for hot keys simulation)
@@ -73,7 +72,9 @@ public:
         double sum = 0;
         for (size_t i = 1; i <= n_; ++i) {
             sum += 1.0 / (std::pow(i, skew_) * norm_);
-            if (sum >= u) return i - 1;
+            if (sum >= u) {
+                return i - 1;
+            }
         }
         return n_ - 1;
     }
@@ -88,7 +89,7 @@ private:
 // BENCHMARK 1: MIXED WORKLOAD (95% read, 5% write)
 // =============================================================================
 
-BenchResult bench_mixed(kallisto::ShardedCuckooTable& table,
+BenchResult benchMixed(kallisto::ShardedCuckooTable& table,
                         const std::vector<std::string>& keys,
                         const std::vector<kallisto::SecretEntry>& entries,
                         size_t num_workers, size_t ops_per_worker) {
@@ -118,7 +119,9 @@ BenchResult bench_mixed(kallisto::ShardedCuckooTable& table,
                     // 95% reads
                     auto result = table.lookup(keys[idx]);
                     total_reads.fetch_add(1, std::memory_order_relaxed);
-                    if (result) total_hits.fetch_add(1, std::memory_order_relaxed);
+                    if (result) {
+                        total_hits.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
             }
             done.count_down();
@@ -138,7 +141,7 @@ BenchResult bench_mixed(kallisto::ShardedCuckooTable& table,
 // BENCHMARK 2: ZIPF DISTRIBUTION (Hot Keys)
 // =============================================================================
 
-BenchResult bench_zipf(kallisto::ShardedCuckooTable& table,
+BenchResult benchZipf(kallisto::ShardedCuckooTable& table,
                        const std::vector<std::string>& keys,
                        const std::vector<kallisto::SecretEntry>& entries,
                        size_t num_workers, size_t ops_per_worker) {
@@ -166,7 +169,9 @@ BenchResult bench_zipf(kallisto::ShardedCuckooTable& table,
                 } else {
                     auto result = table.lookup(keys[idx]);
                     total_reads.fetch_add(1, std::memory_order_relaxed);
-                    if (result) total_hits.fetch_add(1, std::memory_order_relaxed);
+                    if (result) { 
+                        total_hits.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
             }
             done.count_down();
@@ -186,7 +191,7 @@ BenchResult bench_zipf(kallisto::ShardedCuckooTable& table,
 // BENCHMARK 3: BURSTY TRAFFIC (Deployment simulation)
 // =============================================================================
 
-BenchResult bench_bursty(kallisto::ShardedCuckooTable& table,
+BenchResult benchBursty(kallisto::ShardedCuckooTable& table,
                          const std::vector<std::string>& keys,
                          const std::vector<kallisto::SecretEntry>& entries,
                          size_t num_workers, size_t bursts, size_t ops_per_burst) {
@@ -214,7 +219,9 @@ BenchResult bench_bursty(kallisto::ShardedCuckooTable& table,
                     size_t idx = key_dist(rng);
                     auto result = table.lookup(keys[idx]);
                     total_reads.fetch_add(1, std::memory_order_relaxed);
-                    if (result) total_hits.fetch_add(1, std::memory_order_relaxed);
+                    if (result) { 
+                        total_hits.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
                 
                 // Steady phase: 95/5 mixed
@@ -227,7 +234,9 @@ BenchResult bench_bursty(kallisto::ShardedCuckooTable& table,
                     } else {
                         auto result = table.lookup(keys[idx]);
                         total_reads.fetch_add(1, std::memory_order_relaxed);
-                        if (result) total_hits.fetch_add(1, std::memory_order_relaxed);
+                        if (result) { 
+                            total_hits.fetch_add(1, std::memory_order_relaxed);
+                        }
                     }
                 }
                 
@@ -250,13 +259,13 @@ BenchResult bench_bursty(kallisto::ShardedCuckooTable& table,
 // MAIN
 // =============================================================================
 
-int main(int argc, char** argv) {
+int main() {
     // Configuration
-    const size_t NUM_WORKERS = 3;
-    const size_t TOTAL_KEYS = 100000;      // 100K unique secrets
-    const size_t OPS_PER_WORKER = 333333;  // ~1M total per benchmark
-    const size_t NUM_BURSTS = 10;
-    const size_t OPS_PER_BURST = 100000;
+    const size_t num_workers = 3;
+    const size_t total_keys = 100000;      // 100K unique secrets
+    const size_t ops_per_worker = 333333;  // ~1M total per benchmark
+    const size_t num_bursts = 10;
+    const size_t ops_per_burst = 100000;
     
     // Setup logging
     kallisto::LogConfig config("bench_comprehensive");
@@ -266,20 +275,20 @@ int main(int argc, char** argv) {
     std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
     std::cout << "║   KALLISTO COMPREHENSIVE BENCHMARK SUITE (Vault Patterns)    ║\n";
     std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-    std::cout << "║  Workers: " << NUM_WORKERS << "                                                    ║\n";
+    std::cout << "║  Workers: " << num_workers << "                                                    ║\n";
     std::cout << "║  Shards: 64                                                  ║\n";
-    std::cout << "║  Keys: " << TOTAL_KEYS << "                                                ║\n";
-    std::cout << "║  Ops/Worker: " << OPS_PER_WORKER << "                                          ║\n";
+    std::cout << "║  Keys: " << total_keys << "                                                ║\n";
+    std::cout << "║  Ops/Worker: " << ops_per_worker << "                                          ║\n";
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
     
     // Pre-generate test data
-    std::cout << "\n[SETUP] Generating " << TOTAL_KEYS << " keys...\n";
+    std::cout << "\n[SETUP] Generating " << total_keys << " keys...\n";
     std::vector<std::string> keys;
     std::vector<kallisto::SecretEntry> entries;
-    keys.reserve(TOTAL_KEYS);
-    entries.reserve(TOTAL_KEYS);
+    keys.reserve(total_keys);
+    entries.reserve(total_keys);
     
-    for (size_t i = 0; i < TOTAL_KEYS; ++i) {
+    for (size_t i = 0; i < total_keys; ++i) {
         keys.push_back("secret/app/key_" + std::to_string(i));
         kallisto::SecretEntry e;
         e.key = keys.back();
@@ -290,10 +299,10 @@ int main(int argc, char** argv) {
     
     // Create sharded table and pre-populate
     std::cout << "[SETUP] Creating ShardedCuckooTable (64 shards)...\n";
-    kallisto::ShardedCuckooTable table(TOTAL_KEYS * 2);
+    kallisto::ShardedCuckooTable table(total_keys * 2);
     
-    std::cout << "[SETUP] Pre-populating table with " << TOTAL_KEYS << " secrets...\n";
-    for (size_t i = 0; i < TOTAL_KEYS; ++i) {
+    std::cout << "[SETUP] Pre-populating table with " << total_keys << " secrets...\n";
+    for (size_t i = 0; i < total_keys; ++i) {
         table.insert(keys[i], entries[i]);
     }
     std::cout << "[SETUP] Done.\n";
@@ -306,22 +315,22 @@ int main(int argc, char** argv) {
     std::cout << "BENCHMARK 1: MIXED WORKLOAD (95% read, 5% write)\n";
     std::cout << "Pattern: Typical production steady-state\n";
     std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-    auto r1 = bench_mixed(table, keys, entries, NUM_WORKERS, OPS_PER_WORKER);
-    print_result("MIXED 95/5", r1);
+    auto r1 = benchMixed(table, keys, entries, num_workers, ops_per_worker);
+    printResult("MIXED 95/5", r1);
     
     std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     std::cout << "BENCHMARK 2: ZIPF DISTRIBUTION (Hot Keys)\n";
     std::cout << "Pattern: 20% of keys receive 80% of traffic (Pareto)\n";
     std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-    auto r2 = bench_zipf(table, keys, entries, NUM_WORKERS, OPS_PER_WORKER);
-    print_result("ZIPF HOT KEYS", r2);
+    auto r2 = benchZipf(table, keys, entries, num_workers, ops_per_worker);
+    printResult("ZIPF HOT KEYS", r2);
     
     std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     std::cout << "BENCHMARK 3: BURSTY TRAFFIC (Deployment Simulation)\n";
-    std::cout << "Pattern: " << NUM_BURSTS << " deployment bursts, pods startup fetch\n";
+    std::cout << "Pattern: " << num_bursts << " deployment bursts, pods startup fetch\n";
     std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-    auto r3 = bench_bursty(table, keys, entries, NUM_WORKERS, NUM_BURSTS, OPS_PER_BURST);
-    print_result("BURSTY DEPLOYMENT", r3);
+    auto r3 = benchBursty(table, keys, entries, num_workers, num_bursts, ops_per_burst);
+    printResult("BURSTY DEPLOYMENT", r3);
     
     // ==========================================================================
     // SUMMARY
@@ -331,12 +340,12 @@ int main(int argc, char** argv) {
     std::cout << "║                     BENCHMARK SUMMARY                        ║\n";
     std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
     std::cout << std::fixed << std::setprecision(0);
-    std::cout << "║  MIXED 95/5:        " << std::setw(10) << r1.ops_per_sec() << " RPS                       ║\n";
-    std::cout << "║  ZIPF HOT KEYS:     " << std::setw(10) << r2.ops_per_sec() << " RPS                       ║\n";
-    std::cout << "║  BURSTY DEPLOYMENT: " << std::setw(10) << r3.ops_per_sec() << " RPS                       ║\n";
+    std::cout << "║  MIXED 95/5:        " << std::setw(10) << r1.opsPerSec() << " RPS                       ║\n";
+    std::cout << "║  ZIPF HOT KEYS:     " << std::setw(10) << r2.opsPerSec() << " RPS                       ║\n";
+    std::cout << "║  BURSTY DEPLOYMENT: " << std::setw(10) << r3.opsPerSec() << " RPS                       ║\n";
     std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
     
-    double avg_rps = (r1.ops_per_sec() + r2.ops_per_sec() + r3.ops_per_sec()) / 3;
+    double avg_rps = (r1.opsPerSec() + r2.opsPerSec() + r3.opsPerSec()) / 3;
     std::cout << "║  AVERAGE:           " << std::setw(10) << avg_rps << " RPS                       ║\n";
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
     
