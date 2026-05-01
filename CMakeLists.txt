@@ -57,6 +57,7 @@ add_library(kallisto_lib
     src/tls_btree_manager.cpp
     src/rocksdb_storage.cpp
     src/kallisto_core.cpp
+    include/kallisto/engine/lock_free_queue.hpp
     src/engine/kv_engine.cpp
     src/engine/engine_registry.cpp
     # Threading infrastructure (Phase 1.1)

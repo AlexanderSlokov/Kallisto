@@ -136,11 +136,7 @@ KvEngine::KvEngine(const std::string& db_path) {
 }
 
 KvEngine::~KvEngine() {
-    {
-        std::lock_guard<std::mutex> lock(async_mutex_);
-        async_running_ = false;
-        async_cv_.notify_all();
-    }
+    async_running_.store(false, std::memory_order_relaxed);
     if (async_worker_.joinable()) {
         async_worker_.join();
     }
@@ -155,34 +151,55 @@ void KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, cons
             rocksdb_persistence_->delRaw(key);
         }
     } else {
-        std::lock_guard<std::mutex> lock(async_mutex_);
-        async_queue_.push_back({type, key, value});
-        async_cv_.notify_one();
+        // Zero-blocking, lock-free enqueue (nanosecond scale)
+        AsyncOp op{type, key, value};
+        while (!async_queue_.enqueue(std::move(op))) {
+            // If queue is full (extreme edge case), yield to consumer
+            std::this_thread::yield();
+        }
     }
 }
 
 void KvEngine::asyncWorkerLoop() {
-    std::vector<AsyncOp> local_queue;
-    local_queue.reserve(10000);
-    
-    while (async_running_) {
-        {
-            std::unique_lock<std::mutex> lock(async_mutex_);
-            async_cv_.wait(lock, [this] { return !async_running_ || !async_queue_.empty(); });
-            if (!async_running_ && async_queue_.empty()) { 
-				break;
-			}
-            local_queue.swap(async_queue_);
-        }
+    AsyncOp op;
+    std::vector<RocksDBStorage::BatchOp> batch;
+    batch.reserve(20000);
+
+    while (async_running_.load(std::memory_order_relaxed)) {
+        bool has_work = false;
         
-        for (const auto& op : local_queue) {
-            if (op.type == AsyncOp::Type::PUT) {
-                rocksdb_persistence_->putRaw(op.key, op.value);
-            } else {
-                rocksdb_persistence_->delRaw(op.key);
+        // Drain lock-free queue into batch
+        while (async_queue_.dequeue(op)) {
+            has_work = true;
+            auto btype = (op.type == AsyncOp::Type::PUT) 
+                       ? RocksDBStorage::BatchOp::Type::PUT 
+                       : RocksDBStorage::BatchOp::Type::DEL;
+            batch.push_back({btype, std::move(op.key), std::move(op.value)});
+            
+            // Limit batch size to prevent long RocksDB lock stalls
+            if (batch.size() >= 20000) {
+                break;
             }
         }
-        local_queue.clear();
+        
+        if (has_work) {
+            rocksdb_persistence_->applyBatch(batch);
+            batch.clear();
+        } else {
+            // Sleep if idle to prevent 100% CPU burn
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    // Flush any remaining ops on shutdown
+    while (async_queue_.dequeue(op)) {
+        auto btype = (op.type == AsyncOp::Type::PUT) 
+                   ? RocksDBStorage::BatchOp::Type::PUT 
+                   : RocksDBStorage::BatchOp::Type::DEL;
+        batch.push_back({btype, std::move(op.key), std::move(op.value)});
+    }
+    if (!batch.empty()) {
+        rocksdb_persistence_->applyBatch(batch);
     }
 }
 

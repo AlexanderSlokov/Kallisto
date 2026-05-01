@@ -7,10 +7,8 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include <mutex>
-#include <condition_variable>
 #include <thread>
-#include <vector>
+#include "kallisto/engine/lock_free_queue.hpp"
 
 namespace kallisto {
 class RocksDBStorage; // Forward declaration
@@ -63,9 +61,7 @@ private:
         std::string key;
         std::string value;
     };
-    std::mutex async_mutex_;
-    std::condition_variable async_cv_;
-    std::vector<AsyncOp> async_queue_;
+    LockFreeQueue<AsyncOp, 262144> async_queue_;
     std::thread async_worker_;
     std::atomic<bool> async_running_{true};
 

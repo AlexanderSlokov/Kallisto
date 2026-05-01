@@ -143,6 +143,28 @@ bool RocksDBStorage::delRaw(const std::string& key) {
     return true;
 }
 
+bool RocksDBStorage::applyBatch(const std::vector<BatchOp>& ops) {
+    if (!db_ || ops.empty()) { 
+		return false;
+	}
+    
+    rocksdb::WriteBatch batch;
+    for (const auto& op : ops) {
+        if (op.type == BatchOp::Type::PUT) {
+            batch.Put(op.key, op.value);
+        } else {
+            batch.Delete(op.key);
+        }
+    }
+    
+    rocksdb::Status status = db_->Write(write_opts_, &batch);
+    if (!status.ok()) {
+        LOG_ERROR("[ROCKSDB] applyBatch failed: " + status.ToString());
+        return false;
+    }
+    return true;
+}
+
 void RocksDBStorage::iterateAll(std::function<void(const SecretEntry&)> callback) const {
     if (!db_) { 
 		return;
@@ -282,6 +304,7 @@ bool RocksDBStorage::del(const std::string&) {
 bool RocksDBStorage::putRaw(const std::string&, const std::string&) { return false; }
 std::optional<std::string> RocksDBStorage::getRaw(const std::string&) const { return std::nullopt; }
 bool RocksDBStorage::delRaw(const std::string&) { return false; }
+bool RocksDBStorage::applyBatch(const std::vector<BatchOp>&) { return false; }
 
 void RocksDBStorage::flush() {}
 void RocksDBStorage::set_sync(bool) {}
