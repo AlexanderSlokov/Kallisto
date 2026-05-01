@@ -4,6 +4,7 @@ project(kallisto CXX)
 # For Clangd. Allow CMake introduces compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# This project must use modern C++ 20 to fully leverage flagship features like Concepts, Coroutines, or Ranges.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -11,9 +12,40 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
+
+# Add compiler strict warnings
+add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor)
 add_compile_options(-march=native -pthread)
 
 option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+option(ENABLE_ASAN "Enable AddressSanitizer (ASan) and UndefinedBehaviorSanitizer (UBSan)" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer (TSan)" OFF)
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+function(kallisto_log level msg)
+    message(STATUS "[${level}] [Cmake]: ${msg}")
+endfunction()
+
+# ==============================================================================
+# Sanitizers
+# ==============================================================================
+if(ENABLE_ASAN AND ENABLE_TSAN)
+    message(FATAL_ERROR "ENABLE_ASAN and ENABLE_TSAN cannot be enabled at the same time.")
+endif()
+
+if(ENABLE_ASAN)
+    kallisto_log("info" "AddressSanitizer (ASan) & UBSan enabled (-fsanitize=address,undefined)")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(ENABLE_TSAN)
+    kallisto_log("info" "ThreadSanitizer (TSan) enabled (-fsanitize=thread)")
+    add_compile_options(-fsanitize=thread -g)
+    add_link_options(-fsanitize=thread)
+endif()
 
 include_directories(include)
 
@@ -50,12 +82,12 @@ find_package(RocksDB CONFIG)
 if(RocksDB_FOUND)
     target_link_libraries(kallisto_lib PUBLIC RocksDB::rocksdb)
     target_compile_definitions(kallisto_lib PUBLIC KALLISTO_HAS_ROCKSDB=1)
-    message(STATUS "RocksDB found - persistence layer enabled")
+    kallisto_log("info" "RocksDB_FOUND=true - persistence layer enabled")
 else()
-    message(STATUS "RocksDB not found - persistence layer disabled")
+    kallisto_log("warn" "RocksDB_FOUND=false - persistence layer disabled")
 endif()
 
-# Main Executable
+# Main Executable cli for user
 add_executable(kallisto src/cli.cpp)
 target_link_libraries(kallisto kallisto_lib)
 
@@ -141,20 +173,24 @@ add_test(NAME KallistoServerTest COMMAND test_kallisto_server)
 # ===========================================================================
 # Benchmark Tools & Utils
 # ===========================================================================
-add_executable(bench_p99 benchmarks/bench_p99.cpp)
+
+# Core micro-benchmarks (latency, throughput, multi-thread)
+add_executable(bench_p99 benchmarks/core/bench_p99.cpp)
 target_link_libraries(bench_p99 kallisto_lib)
 
-add_executable(bench_dos benchmarks/bench_dos.cpp)
-target_link_libraries(bench_dos kallisto_lib)
-
-add_executable(repro_crash benchmarks/repro_crash.cpp)
-target_link_libraries(repro_crash kallisto_lib)
-
-add_executable(bench_multithread benchmarks/bench_multithread.cpp)
+add_executable(bench_multithread benchmarks/core/bench_multithread.cpp)
 target_link_libraries(bench_multithread kallisto_lib)
 
+# Security benchmarks (DoS, hash flooding)
+add_executable(bench_dos benchmarks/security/bench_dos.cpp)
+target_link_libraries(bench_dos kallisto_lib)
+
+# Diagnostic tools (crash repro, stress tests)
+add_executable(repro_crash benchmarks/diagnostic/repro_crash.cpp)
+target_link_libraries(repro_crash kallisto_lib)
+
 # ===========================================================================
-# Phase 2: Envoy-Style Server (HTTP + SO_REUSEPORT)
+# HTTP Server
 # ===========================================================================
 find_package(simdjson CONFIG)
 
@@ -172,8 +208,12 @@ if(ENABLE_COVERAGE)
 endif()
 
 if(simdjson_FOUND)
+    kallisto_log("info" "simdjson_FOUND=true - JSON parser enabled")
     target_link_libraries(kallisto_server_lib PUBLIC simdjson::simdjson)
     target_compile_definitions(kallisto_server_lib PUBLIC KALLISTO_HAS_SIMDJSON=1)
+    kallisto_log("info" "simdjson_LINKED=true - Kallisto will be compile with simdjson package")
+else()
+    kallisto_log("warn" "simdjson_FOUND=false - JSON parser is not enabled")
 endif()
 
 # Server executable
@@ -187,5 +227,5 @@ target_link_libraries(test_listener kallisto_server_lib)
 # ===========================================================================
 find_package(spdlog CONFIG)
 if(spdlog_FOUND)
-   message(STATUS "spdlog found - ready for Logger upgrade")
+   kallisto_log("info" "spdlog_FOUND=true - ready for Logger upgrade")
 endif()

@@ -1,7 +1,7 @@
 -- wrk_mixed.lua: MIXED workload benchmark (95% READ, 5% WRITE)
 -- Simulates production traffic pattern for Vault-like secret management
 --
--- Usage: wrk -t4 -c100 -d10s -s bench/wrk_mixed.lua http://localhost:8200
+-- Usage: wrk -t4 -c100 -d10s -s benchmarks/server/workloads/wrk_mixed.lua http://localhost:8200
 
 counter = -1
 

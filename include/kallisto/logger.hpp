@@ -210,7 +210,7 @@ struct LogConfig {
     std::string logFilePath;
     int logRotateBytes = 0;
     int logRotateMaxFiles = 0;
-    LogConfig(std::string_view name) : name(name) {}
+    LogConfig(std::string_view n) : name(n) {}
 };
 
 // Define Logger::setup() now that LogConfig is complete
