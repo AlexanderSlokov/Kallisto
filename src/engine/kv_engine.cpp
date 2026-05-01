@@ -131,11 +131,59 @@ KvEngine::KvEngine(const std::string& db_path) {
     rocksdb_persistence_->iterateAll([this](const SecretEntry& entry) {
         path_index_->insertPathIfAbsent(entry.path);
     });
+
+    async_worker_ = std::thread(&KvEngine::asyncWorkerLoop, this);
 }
 
 KvEngine::~KvEngine() {
-    // Make sure we save before dying if batching
+    {
+        std::lock_guard<std::mutex> lock(async_mutex_);
+        async_running_ = false;
+        async_cv_.notify_all();
+    }
+    if (async_worker_.joinable()) {
+        async_worker_.join();
+    }
     forceFlush();
+}
+
+void KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value) {
+    if (sync_mode_.load(std::memory_order_relaxed) == SyncMode::IMMEDIATE) {
+        if (type == AsyncOp::Type::PUT) {
+            rocksdb_persistence_->putRaw(key, value);
+        } else {
+            rocksdb_persistence_->delRaw(key);
+        }
+    } else {
+        std::lock_guard<std::mutex> lock(async_mutex_);
+        async_queue_.push_back({type, key, value});
+        async_cv_.notify_one();
+    }
+}
+
+void KvEngine::asyncWorkerLoop() {
+    std::vector<AsyncOp> local_queue;
+    local_queue.reserve(10000);
+    
+    while (async_running_) {
+        {
+            std::unique_lock<std::mutex> lock(async_mutex_);
+            async_cv_.wait(lock, [this] { return !async_running_ || !async_queue_.empty(); });
+            if (!async_running_ && async_queue_.empty()) { 
+				break;
+			}
+            local_queue.swap(async_queue_);
+        }
+        
+        for (const auto& op : local_queue) {
+            if (op.type == AsyncOp::Type::PUT) {
+                rocksdb_persistence_->putRaw(op.key, op.value);
+            } else {
+                rocksdb_persistence_->delRaw(op.key);
+            }
+        }
+        local_queue.clear();
+    }
 }
 
 std::string KvEngine::buildFullKey(const std::string& path, const std::string& key) const {
@@ -236,15 +284,10 @@ tl::expected<void, EngineError> KvEngine::put_version(std::string_view path, con
     
     std::string vkey = buildVersionKey(path, vs.version_id);
     
-    if (!rocksdb_persistence_->putRaw(vkey, serializePayload(payload))) { 
-		return tl::unexpected(EngineError::StorageError);
-	}
+    enqueueOrExecute(AsyncOp::Type::PUT, vkey, serializePayload(payload));
     cacheRaw(storage_.get(), vkey, serializePayload(payload));
     
-    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(meta))) { 
-		return tl::unexpected(EngineError::StorageError);
-	}
-
+    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(meta));
 	cacheRaw(storage_.get(), mkey, serializeMetadata(meta));
     
     path_index_->insertPathIfAbsent(std::string(path));
@@ -278,9 +321,7 @@ tl::expected<void, EngineError> KvEngine::soft_delete(std::string_view path, uin
 		return tl::unexpected(EngineError::InvalidVersion);
 	}
     
-    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(*meta))) { 
-		return tl::unexpected(EngineError::StorageError);
-	}
+    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
     cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
     handleBatchSync();
     
@@ -312,12 +353,10 @@ tl::expected<void, EngineError> KvEngine::destroy_version(std::string_view path,
 	}
     
     std::string vkey = buildVersionKey(path, version);
-    rocksdb_persistence_->delRaw(vkey);
+    enqueueOrExecute(AsyncOp::Type::DEL, vkey, "");
     uncacheRaw(storage_.get(), vkey);
     
-    if (!rocksdb_persistence_->putRaw(mkey, serializeMetadata(*meta))) {
-        return tl::unexpected(EngineError::StorageError);
-    }
+    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
     cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
     handleBatchSync();
     

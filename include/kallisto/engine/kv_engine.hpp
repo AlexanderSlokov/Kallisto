@@ -7,6 +7,10 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <vector>
 
 namespace kallisto {
 class RocksDBStorage; // Forward declaration
@@ -52,6 +56,21 @@ private:
     void handleBatchSync();
     void checkAndSync();
     std::string buildFullKey(const std::string& path, const std::string& key) const;
+
+    // --- Background I/O Worker for Eventual Consistency ---
+    struct AsyncOp {
+        enum class Type { PUT, DEL } type;
+        std::string key;
+        std::string value;
+    };
+    std::mutex async_mutex_;
+    std::condition_variable async_cv_;
+    std::vector<AsyncOp> async_queue_;
+    std::thread async_worker_;
+    std::atomic<bool> async_running_{true};
+
+    void asyncWorkerLoop();
+    void enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value = "");
 };
 
 // Compile-time contract validation
