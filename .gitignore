@@ -30,6 +30,7 @@
 *.exe
 *.out
 *.app
+*.log
 /build
 /vcpkg_installed
 ghz-web
