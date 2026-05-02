@@ -14,7 +14,8 @@ CMAKE_FLAGS = -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cm
         benchmark-strict benchmark-batch benchmark-p99 benchmark-throughput \
         benchmark-dos test-atomic benchmark-multithread \
         bench-ghz bench-server bench-http bench-grpc \
-        docker-build docker-test docker-run coverage
+        docker-build docker-test docker-run coverage \
+        test-asan test-tsan
 
 all: build
 
@@ -23,6 +24,8 @@ help:
 	@echo "  make build          - Build core (CLI only)"
 	@echo "  make build-server   - Build with HTTP + RocksDB (requires vcpkg)"
 	@echo "  make test           - Run all Unit Tests (via CTest)"
+	@echo "  make test-asan      - Run tests with AddressSanitizer (Memory leaks/errors)"
+	@echo "  make test-tsan      - Run tests with ThreadSanitizer (Data races)"
 	@echo "  make clean          - Deep clean (Fixes Generator mismatch)"
 	@echo ""
 	@echo "Legacy & Specialized Commands:"
@@ -86,6 +89,20 @@ coverage: clean build-server
 	@mkdir -p coverage_report
 	@gcovr -r . --html-details coverage_report/index.html -f src/ -f include/
 	@echo "Coverage report generated at coverage_report/index.html"
+
+test-asan: clean
+	@echo "Building with ASan/UBSan enabled..."
+	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_ASAN=ON
+	@cmake --build $(BUILD_DIR) -j $(shell nproc)
+	@echo "Running tests with ASan..."
+	@ctest --test-dir $(BUILD_DIR) --output-on-failure
+
+test-tsan: clean
+	@echo "Building with TSan enabled..."
+	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_TSAN=ON
+	@cmake --build $(BUILD_DIR) -j $(shell nproc)
+	@echo "Running tests with TSan..."
+	@ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 # ===========================================================================
 # Benchmarks (CLI & In-process)
