@@ -74,9 +74,9 @@ test-threading: build
 	@./$(BUILD_DIR)/test_threading
 
 test-persistence: build-server
-	@bash tests/test_persistence.sh
+	@bash tests/integration/test_persistence.sh
 
-coverage:
+coverage: clean build-server
 	@echo "Building with coverage enabled..."
 	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_COVERAGE=ON
 	@cmake --build $(BUILD_DIR) -j $(shell nproc)
@@ -115,7 +115,7 @@ benchmark-multithread: build
 # Benchmarks (Server - HTTP)
 # ===========================================================================
 bench-server: clean build-server
-	@bash bench/run_server_bench.sh
+	@bash benchmarks/server/run_server_bench.sh
 
 bench-http: bench-server
 

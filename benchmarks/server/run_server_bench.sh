@@ -3,7 +3,7 @@
 # Kallisto Server Load Test Suite
 # Uses wrk to stress test the HTTP API
 #
-# Usage: ./bench/run_server_bench.sh [threads] [connections] [duration]
+# Usage: ./benchmarks/server/run_server_bench.sh [threads] [connections] [duration]
 # Default: 4 threads, 200 connections, 10s duration
 #
 set -euo pipefail
@@ -32,6 +32,7 @@ BENCH_LOG="/tmp/kallisto_bench.log"
 SERVER_BIN="./build/kallisto_server"
 CLI_BIN="./build/kallisto"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKLOAD_DIR="$SCRIPT_DIR/workloads"
 
 # Helper to run commands with sudo only if necessary and available
 run_cmd() {
@@ -52,16 +53,13 @@ NC='\033[0m'
 
 banner() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${BOLD}     KALLISTO SERVER LOAD TEST (wrk)                          ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Total Cores:" "$TOTAL_CORES"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "wrk Threads:" "$THREADS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Kal Workers:" "$WORKERS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Connections:" "$CONNECTIONS"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Duration:" "$DURATION"
-    printf "${CYAN}║${NC}  %-14s ${YELLOW}%-40s${NC} ${CYAN}║${NC}\n" "Socket Path:" "$KALLISTO_SOCKET"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}     KALLISTO SERVER LOAD TEST (wrk) ${NC}"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Total Cores:" "$TOTAL_CORES"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "wrk Threads:" "$THREADS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Kal Workers:" "$WORKERS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Connections:" "$CONNECTIONS"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Duration:" "$DURATION"
+    printf "${CYAN}  %-14s ${YELLOW}%-40s${NC}\n" "Socket Path:" "$KALLISTO_SOCKET"
     echo ""
 }
 
@@ -108,7 +106,7 @@ start_server() {
 
 seed_data() {
     echo -e "${CYAN}[2/5] Seeding data with wrk in 3 seconds...${NC}"
-    wrk -t2 -c10 -d3s -s "$SCRIPT_DIR/wrk_seed.lua" "http://localhost:$HTTP_PORT" 2>/dev/null
+    wrk -t2 -c10 -d3s -s "$WORKLOAD_DIR/wrk_seed.lua" "http://localhost:$HTTP_PORT" 2>/dev/null
 
     VERIFY=$(curl -s --max-time 2 -H "Connection: close" "http://localhost:$HTTP_PORT/v1/secret/data/bench/s0" 2>/dev/null || echo "FAIL")
     if echo "$VERIFY" | grep -q "seed-value"; then
@@ -122,19 +120,19 @@ run_benchmarks() {
     echo ""
     echo -e "${CYAN}[3/5] Running GET benchmark (pure read, ${DURATION})...${NC}"
     echo "────────────────────────────────────────────────────────────────"
-    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$SCRIPT_DIR/wrk_get.lua" "http://localhost:$HTTP_PORT" 2>&1
+    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$WORKLOAD_DIR/wrk_get.lua" "http://localhost:$HTTP_PORT" 2>&1
     sleep 1
 
     echo ""
     echo -e "${CYAN}[4/5] Running PUT benchmark (pure write, ${DURATION})...${NC}"
     echo "────────────────────────────────────────────────────────────────"
-    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$SCRIPT_DIR/wrk_put.lua" "http://localhost:$HTTP_PORT" 2>&1
+    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$WORKLOAD_DIR/wrk_put.lua" "http://localhost:$HTTP_PORT" 2>&1
     sleep 1
 
     echo ""
     echo -e "${CYAN}[5/5] Running MIXED benchmark (95/5, ${DURATION})...${NC}"
     echo "────────────────────────────────────────────────────────────────"
-    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$SCRIPT_DIR/wrk_mixed.lua" "http://localhost:$HTTP_PORT" 2>&1
+    wrk -t$THREADS -c$CONNECTIONS -d$DURATION -s "$WORKLOAD_DIR/wrk_mixed.lua" "http://localhost:$HTTP_PORT" 2>&1
 }
 
 cleanup() {

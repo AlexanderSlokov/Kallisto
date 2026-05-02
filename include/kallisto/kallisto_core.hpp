@@ -1,82 +1,48 @@
 #pragma once
 
+#include "kallisto/engine/engine_registry.hpp"
+#include "kallisto/engine/kv_engine.hpp"
 #include "kallisto/secret_entry.hpp"
-#include "kallisto/sharded_cuckoo_table.hpp"
-#include "kallisto/tls_btree_manager.hpp"
-
-#include <atomic>
-#include <memory>
 #include <string>
 #include <optional>
 
 namespace kallisto {
 
-class RocksDBStorage;
-
+/**
+ * KallistoCore — Backward-compatible facade.
+ *
+ * Delegates all operations to the EngineRegistry.
+ * Default: mounts a single KvEngine at "secret".
+ *
+ * Consumers (HttpHandler, UdsAdminHandler, tests) continue using
+ * this class unchanged. Migration is invisible to them.
+ */
 class KallistoCore {
 public:
-  KallistoCore(const std::string& db_path = "/var/lib/kallisto/data");
-  ~KallistoCore();
+    explicit KallistoCore(const std::string& db_path = "/var/lib/kallisto/data");
+    ~KallistoCore();
 
-  // Prevent copying
-  KallistoCore(const KallistoCore&) = delete;
-  KallistoCore& operator=(const KallistoCore&) = delete;
+    KallistoCore(const KallistoCore&) = delete;
+    KallistoCore& operator=(const KallistoCore&) = delete;
 
-  /**
-   * @brief Stores a secret at a specific path.
-   * @param path The path to store the secret at.
-   * @param key The key of the secret.
-   * @param value The value of the secret.
-   * @param ttl_secs Time to live in seconds. Default boundary is safely set to 3600s.
-   * @return true if the secret was stored successfully.
-   */
-  bool put(const std::string& path, const std::string& key, const std::string& value,
-           uint64_t ttl_secs = 3600);
+    // --- Original API (unchanged signatures) ---
+    bool put(const std::string& path, const std::string& key,
+             const std::string& value, uint64_t ttl_secs = 3600);
+    std::optional<SecretEntry> get(const std::string& path, const std::string& key);
+    bool del(const std::string& path, const std::string& key);
 
-  /**
-   * @brief Retrieves a secret. Includes logic for Cache-Miss fallback to RocksDB.
-   * @return The secret entry wrapped in std::optional, or std::nullopt if not found.
-   */
-  std::optional<SecretEntry> get(const std::string& path, const std::string& key);
+    enum class SyncMode { IMMEDIATE, BATCH };
+    void changeSyncMode(SyncMode mode);
+    SyncMode getSyncMode() const;
+    void forceFlush();
 
-  /**
-   * @brief Deletes a secret.
-   */
-  bool del(const std::string& path, const std::string& key);
-
-  enum class SyncMode {
-    IMMEDIATE, // Sync to disk after every write (Safe, Slow)
-    BATCH      // Sync only when threshold reached (Unsafe, Fast)
-  };
-
-  /**
-   * @brief Thread-safe toggle for sync mode.
-   */
-  void changeSyncMode(SyncMode mode);
-  SyncMode getSyncMode() const;
-
-  /**
-   * @brief Manually triggers a disk flush.
-   */
-  void forceFlush();
+    // --- New Hexagonal API ---
+    engine::EngineRegistry& registry() { return registry_; }
+    const engine::EngineRegistry& registry() const { return registry_; }
 
 private:
-  std::unique_ptr<ShardedCuckooTable> storage_;
-  std::unique_ptr<TlsBTreeManager> path_index_;
-  std::unique_ptr<RocksDBStorage> rocksdb_persistence_;
-
-  // Thread-safe state for lock-free hot path (OS-Level Constraint)
-  std::atomic<SyncMode> sync_mode_{SyncMode::IMMEDIATE};
-  std::atomic<size_t> unsaved_ops_count_{0};
-
-  static constexpr size_t default_cuckoo_size = 2097152; // 2^21 slots
-  static constexpr int default_btree_degree = 100;
-  static constexpr size_t sync_threshold = 100000;
-
-  // Internal helpers
-  void checkAndSync();
-  std::string buildFullKey(const std::string& path, const std::string& key) const;
-  void rebuildIndices(const std::vector<SecretEntry>& secrets);
+    engine::EngineRegistry registry_;
+    engine::KvEngine* default_kv_engine_ = nullptr; // Non-owning shortcut
 };
 
 } // namespace kallisto

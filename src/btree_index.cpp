@@ -18,7 +18,7 @@ bool BTreeIndex::insertPath(const std::string& path) {
   }
 
   Node* root_ptr = root_node_.get();
-  if (root_ptr->path_keys.size() == 2 * min_degree_ - 1) {
+  if (root_ptr->path_keys.size() == static_cast<size_t>(2 * min_degree_ - 1)) {
     auto new_root = std::make_unique<Node>(false);
     new_root->child_nodes.push_back(std::move(root_node_));
     root_node_ = std::move(new_root);
@@ -33,7 +33,7 @@ bool BTreeIndex::insertPath(const std::string& path) {
 bool BTreeIndex::validatePath(const std::string& path) const { return containsPathRecursive(root_node_.get(), path); }
 
 bool BTreeIndex::containsPathRecursive(Node* current_node, const std::string& path_key) const {
-  int index = 0;
+  size_t index = 0;
   while (index < current_node->path_keys.size() && path_key > current_node->path_keys[index]) {
     index++;
   }
@@ -64,7 +64,7 @@ void BTreeIndex::insertIntoNonFullNode(Node* current_node, const std::string& pa
       index--;
     }
     index++;
-    if (current_node->child_nodes[index]->path_keys.size() == 2 * min_degree_ - 1) {
+    if (current_node->child_nodes[index]->path_keys.size() == static_cast<size_t>(2 * min_degree_ - 1)) {
       splitChildNode(current_node, index, current_node->child_nodes[index].get());
       if (path_key > current_node->path_keys[index]) {
         index++;

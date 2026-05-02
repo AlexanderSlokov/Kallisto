@@ -52,6 +52,18 @@ public:
      */
     bool del(const std::string& key);
 
+    // --- Raw API for V2 Engine ---
+    bool putRaw(const std::string& key, const std::string& value);
+    std::optional<std::string> getRaw(const std::string& key) const;
+    bool delRaw(const std::string& key);
+
+    struct BatchOp {
+        enum class Type { PUT, DEL } type;
+        std::string key;
+        std::string value;
+    };
+    bool applyBatch(const std::vector<BatchOp>& ops);
+
     /**
      * Iterate over all entries in the database.
      * Useful for rebuilding indices on startup without loading all data into memory.

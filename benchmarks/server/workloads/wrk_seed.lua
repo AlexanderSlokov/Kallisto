@@ -1,7 +1,7 @@
 -- wrk_seed.lua: Seed data for GET benchmark
 -- Seeds keys bench/s0..s999 so wrk_get.lua can read them
 --
--- Usage: wrk -t2 -c10 -d3s -s bench/wrk_seed.lua http://localhost:8200
+-- Usage: wrk -t2 -c10 -d3s -s benchmarks/server/workloads/wrk_seed.lua http://localhost:8200
 
 counter = -1
 
