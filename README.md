@@ -313,7 +313,7 @@ make bench-server
 
 DragonflyDB is widely considered the absolute pinnacle of modern, multi-threaded in-memory datastores. But how does Kallisto stack up against it when both are forced to **persist data fairly**?
 
-To find out, we ran DragonflyDB restricted to the same CPU resources (2 cores for the server, 2 cores for the benchmark), and forced Dragonfly to enable Append-Only File (AOF) with aggressive snapshots to simulate the same I/O persistence guarantee as Kallisto's RocksDB WAL.
+To find out, we ran DragonflyDB restricted to the same CPU resources (2 cores for the server, 2 cores for the benchmark), and forced to enable aggressive snapshots to simulate the same I/O persistence guarantee as Kallisto's RocksDB WAL.
 
 | Metric | DragonflyDB (1:10 mixed) | Kallisto (95/5 mixed) | Winner |
 |---|---|---|---|
