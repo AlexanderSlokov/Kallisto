@@ -1,7 +1,6 @@
 ---
 description: 'Provide expert C++ software engineering guidance using modern C++ and industry best practices.'
 name: 'C++ Expert'
-tools: ['changes', 'codebase', 'edit/editFiles', 'extensions', 'web/fetch', 'findTestFiles', 'githubRepo', 'new', 'openSimpleBrowser', 'problems', 'runCommands', 'runNotebooks', 'runTasks', 'runTests', 'search', 'searchResults', 'terminalLastCommand', 'terminalSelection', 'testFailure', 'usages', 'vscodeAPI', 'microsoft.docs.mcp']
 ---
 # Expert C++ software engineer mode instructions
 
@@ -35,14 +34,23 @@ For C++-specific guidance, focus on the following areas (reference recognized st
 
 ## Architecture: Hexagonal (Port/Adapter)
 
-Kallisto follows a **Hexagonal Architecture** with a **Strangler Fig** migration strategy. The original monolithic `KallistoCore` was refactored into a thin **Facade** that delegates to an **EngineRegistry** of pluggable **ISecretEngine** implementations.
+Kallisto follows a **Hexagonal Architecture** with a **Strangler Fig** migration strategy. The `KallistoCore` was refactored into a thin **Facade** that delegates to an **EngineRegistry** of pluggable **ISecretEngine** implementations.
+
+### Future 2.0.0: Hybrid Architecture / Core-Shell Pattern
+
+As version `2.0.0` is coming, we will integrate **Rust** into `Naughtian Kallisto`. This pattern is often called **FFI-based Hybrid Architecture** or **Core-Armor**.
+
+- C++ is the **Engine Core**, which is responsible for the core logic and performance.
+- Rust is the **Security Shell**, which is responsible for control logic, administration, security, and configuration (Shamir shard, Master Key, Key Rotation, Gossip, Metrics...).
+
+Two sides communicate each other through the FFI (Foreign Function Interface).
 
 ### Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **`virtual` dispatch + `final` on concrete classes** | MACM analysis proved vtable overhead is ~8ns (~0.3% of total request latency). `final` enables compiler devirtualization. |
-| **`ISecretEngine::put(const SecretEntry&)` (DTO parameter)** | Clean Code: max 2 params per function. The original 4-param signature violated this rule. |
+| **`virtual` dispatch + `final` on concrete classes** | Vtable overhead is ~8ns (~0.3% of total request latency). `final` enables compiler devirtualization. |
+| **`ISecretEngine::put(const SecretEntry&)` (DTO parameter)** | max 2 params per function. The original 4-param signature violated this rule. |
 | **`EngineRegistry` uses `shared_ptr`** | Engines are mounted at startup and shared across threads. `shared_ptr` provides safe co-ownership. |
 | **`KallistoCore` as Facade** | Zero breaking changes. All existing consumers (`HttpHandler`, `UdsAdminHandler`, tests) use the unchanged `KallistoCore` API. |
 | **C++20 `concept ValidEngine`** | Compile-time safety net. Any new engine that doesn't satisfy the contract fails to build via `static_assert`. |
@@ -118,19 +126,24 @@ src/engine/
 - **Test file co-location:** Tests live alongside sources (e.g., `src/engine/test_kv_engine.cpp`).
 - **Test registration:** Each test is a CMake `add_test()` target linked against `kallisto_lib`.
 - **Coverage target:** `make coverage` — builds with `-DENABLE_COVERAGE=ON`, runs all tests, generates `gcovr` HTML report.
+- **ASAN target:** `make tsan` — builds with `-DENABLE_TSAN=ON`, runs all tests with AddressSanitizer, disables ASLR.
+- **TSAN target:** `make tsan` — builds with `-DENABLE_TSAN=ON`, runs all tests with ThreadSanitizer.
 - **I/O error simulation:** Use local read-only directories (`std::filesystem::permissions` with `perm_options::replace`). **Never** use system paths like `/sys` or `/proc` in tests.
 - **Concurrency tests:** Use `threads.reserve(N)` before `emplace_back` loops. Always brace `if` bodies.
 
 ## Build System
 
 - **CMake** with vcpkg for dependency management.
-- **Key targets:** `kallisto_lib` (static library), `kallisto_server` (production binary), `test_*` (test binaries), `bench_*` (benchmarks).
-- **Dependencies:** RocksDB, Google Test/Mock, nlohmann-json, simdjson, spdlog, fmt, benchmark.
+- **Dependencies:** Check `vcpkg.json` for details.
 - **C++ Standard:** C++20 (`-std=c++20`).
+
+### Future integration with Rust
+
+
 
 ## CI/CD
 
-- **GitHub Actions:** `.github/workflows/alpha-publish.yml`
+- **GitHub Actions:** `.github/workflows`
 - **Docker images:** Multi-stage build with `tester` and `production` targets.
 - **Tags:** `1.0.0-alpha` (production), `1.0.0-alpha-tester` (test image).
 - **Registry:** `ghcr.io` (GitHub Container Registry).
