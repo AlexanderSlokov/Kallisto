@@ -101,8 +101,8 @@ test-tsan: clean
 	@echo "Building with TSan enabled..."
 	@cmake -B $(BUILD_DIR) -S . $(CMAKE_FLAGS) -DENABLE_TSAN=ON
 	@cmake --build $(BUILD_DIR) -j $(shell nproc)
-	@echo "Running tests with TSan..."
-	@ctest --test-dir $(BUILD_DIR) --output-on-failure
+	@echo "Running tests with TSan (ASLR disabled)..."
+	@setarch $$(uname -m) -R ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 # ===========================================================================
 # Benchmarks (CLI & In-process)

@@ -185,6 +185,13 @@ public:
   }
 
   void addFd(int fd, uint32_t events, FdCb cb) override {
+    if (!isThreadSafe()) {
+      post([this, fd, events, cb = std::move(cb)]() mutable {
+        addFd(fd, events, std::move(cb));
+      });
+      return;
+    }
+
     struct epoll_event ev{};
     ev.events = events;
     ev.data.fd = fd;
@@ -202,6 +209,13 @@ public:
   }
 
   void modifyFd(int fd, uint32_t events) override {
+    if (!isThreadSafe()) {
+      post([this, fd, events]() {
+        modifyFd(fd, events);
+      });
+      return;
+    }
+
     struct epoll_event ev{};
     ev.events = events;
     ev.data.fd = fd;
@@ -212,6 +226,13 @@ public:
   }
 
   void removeFd(int fd) override {
+    if (!isThreadSafe()) {
+      post([this, fd]() {
+        removeFd(fd);
+      });
+      return;
+    }
+
     // Tell OS to stop monitoring immediately
     epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
 
