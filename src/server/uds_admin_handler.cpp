@@ -75,12 +75,14 @@ void UdsAdminHandler::stop() {
     if (server_fd_ >= 0) {
         ::shutdown(server_fd_, SHUT_RDWR); // Kick accept() out
         ::close(server_fd_);
-        server_fd_ = -1;
+        // Do not set server_fd_ = -1 here, acceptLoop might still be reading it.
     }
 
     if (accept_thread_.joinable()) {
         accept_thread_.join();
     }
+
+    server_fd_ = -1;
 
     ::unlink(socket_path_.c_str());
     info("[UDS Admin] Stopped.");
