@@ -143,50 +143,54 @@ KvEngine::~KvEngine() {
     forceFlush();
 }
 
-void KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value) {
+tl::expected<void, EngineError> KvEngine::enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value) {
     if (sync_mode_.load(std::memory_order_relaxed) == SyncMode::IMMEDIATE) {
+        bool ok = false;
         if (type == AsyncOp::Type::PUT) {
-            rocksdb_persistence_->putRaw(key, value);
+            ok = rocksdb_persistence_->putRaw(key, value);
         } else {
-            rocksdb_persistence_->delRaw(key);
+            ok = rocksdb_persistence_->delRaw(key);
+        }
+        if (!ok) {
+            return tl::unexpected(EngineError::StorageError);
         }
     } else {
-        // Zero-blocking, lock-free enqueue (nanosecond scale)
+        // Lock-free enqueue
         AsyncOp op{type, key, value};
-        while (!async_queue_.enqueue(std::move(op))) {
-            // Queue full -> Backpressure with sleep to avoid burning CPU (busy-wait spinlock)
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        if (!async_queue_.enqueue(std::move(op))) {
+            return tl::unexpected(EngineError::QueueFull);
         }
     }
+    return {};
 }
 
 void KvEngine::asyncWorkerLoop() {
     AsyncOp op;
     std::vector<RocksDBStorage::BatchOp> batch;
-    batch.reserve(1000);
+    batch.reserve(1024);
+
+    auto last_flush_time = std::chrono::steady_clock::now();
 
     while (async_running_.load(std::memory_order_relaxed)) {
-        bool dequeued = false;
-        
-        // Batch exactly 1000 ops to keep RocksDB inserts smooth and avoid giant allocations
-        for (int i = 0; i < 1000; ++i) {
-            if (async_queue_.dequeue(op)) {
-                dequeued = true;
-                auto btype = (op.type == AsyncOp::Type::PUT) 
-                           ? RocksDBStorage::BatchOp::Type::PUT 
-                           : RocksDBStorage::BatchOp::Type::DEL;
-                batch.push_back({btype, std::move(op.key), std::move(op.value)});
-            } else {
-                break;
-            }
-        }
+        bool dequeued = async_queue_.dequeue(op);
         
         if (dequeued) {
+            auto btype = (op.type == AsyncOp::Type::PUT) 
+                       ? RocksDBStorage::BatchOp::Type::PUT 
+                       : RocksDBStorage::BatchOp::Type::DEL;
+            batch.push_back({btype, std::move(op.key), std::move(op.value)});
+        }
+        
+        auto now = std::chrono::steady_clock::now();
+        bool timeout_reached = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time).count() >= 5;
+
+        if (batch.size() >= 1024 || (timeout_reached && !batch.empty())) {
             rocksdb_persistence_->applyBatch(batch);
             batch.clear();
-        } else {
-            // Sleep if idle to prevent 100% CPU burn
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            last_flush_time = std::chrono::steady_clock::now();
+        } else if (!dequeued) {
+            // Sleep slightly if idle to prevent 100% CPU burn
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
     }
 
@@ -204,18 +208,6 @@ void KvEngine::asyncWorkerLoop() {
 
 std::string KvEngine::buildFullKey(const std::string& path, const std::string& key) const {
     return path + ":" + key; // V1 legacy fallback
-}
-
-void KvEngine::handleBatchSync() {
-    if (sync_mode_.load(std::memory_order_relaxed) == SyncMode::BATCH) {
-        size_t ops = unsaved_ops_count_.fetch_add(1, std::memory_order_relaxed);
-        if (ops >= sync_threshold) {
-            size_t current = ops + 1;
-            if (unsaved_ops_count_.compare_exchange_strong(current, 0, std::memory_order_relaxed)) {
-                forceFlush();
-            }
-        }
-    }
 }
 
 tl::expected<KeyMetadata, EngineError> KvEngine::read_metadata(std::string_view path) {
@@ -300,15 +292,19 @@ tl::expected<void, EngineError> KvEngine::put_version(std::string_view path, con
     
     std::string vkey = buildVersionKey(path, vs.version_id);
     
-    enqueueOrExecute(AsyncOp::Type::PUT, vkey, serializePayload(payload));
+    auto res_v = enqueueOrExecute(AsyncOp::Type::PUT, vkey, serializePayload(payload));
+    if (!res_v) {
+        return tl::unexpected(res_v.error());
+    }
     cacheRaw(storage_.get(), vkey, serializePayload(payload));
     
-    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(meta));
+    auto res_m = enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(meta));
+    if (!res_m) {
+        return tl::unexpected(res_m.error());
+    }
 	cacheRaw(storage_.get(), mkey, serializeMetadata(meta));
     
     path_index_->insertPathIfAbsent(std::string(path));
-	
-	handleBatchSync();
     
     return {};
 }
@@ -337,9 +333,11 @@ tl::expected<void, EngineError> KvEngine::soft_delete(std::string_view path, uin
 		return tl::unexpected(EngineError::InvalidVersion);
 	}
     
-    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
+    auto res = enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
+    if (!res) {
+        return tl::unexpected(res.error());
+    }
     cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
-    handleBatchSync();
     
     return {};
 }
@@ -369,12 +367,17 @@ tl::expected<void, EngineError> KvEngine::destroy_version(std::string_view path,
 	}
     
     std::string vkey = buildVersionKey(path, version);
-    enqueueOrExecute(AsyncOp::Type::DEL, vkey, "");
+    auto res_v = enqueueOrExecute(AsyncOp::Type::DEL, vkey, "");
+    if (!res_v) {
+        return tl::unexpected(res_v.error());
+    }
     uncacheRaw(storage_.get(), vkey);
     
-    enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
+    auto res_m = enqueueOrExecute(AsyncOp::Type::PUT, mkey, serializeMetadata(*meta));
+    if (!res_m) {
+        return tl::unexpected(res_m.error());
+    }
     cacheRaw(storage_.get(), mkey, serializeMetadata(*meta));
-    handleBatchSync();
     
     return {};
 }

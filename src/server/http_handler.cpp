@@ -366,12 +366,23 @@ void HttpHandler::handlePutSecret(Connection& conn, const std::string& path,
         key = path.substr(slash + 1);
     }
     
-    bool ok = core_->put(dir, key, value, ttl);
+    engine::SecretPayload payload{value, ttl};
+    auto engine = core_->registry().resolve("secret");
+    if (!engine) {
+        sendError(conn, 500, "Secret engine not found");
+        return;
+    }
     
-    if (ok) {
+    auto res = engine->put_version(dir + "/" + key, payload);
+    
+    if (res.has_value()) {
         sendResponse(conn, 200, "application/json", "{\"data\":{\"created\":true}}");
     } else {
-        sendError(conn, 500, "Failed to store secret in core");
+        if (res.error() == engine::EngineError::QueueFull) {
+            sendError(conn, 503, "Service Unavailable: Queue Full");
+        } else {
+            sendError(conn, 500, "Failed to store secret");
+        }
     }
 }
 

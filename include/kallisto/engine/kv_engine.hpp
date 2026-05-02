@@ -45,13 +45,10 @@ private:
     std::unique_ptr<RocksDBStorage> rocksdb_persistence_;
 
     std::atomic<SyncMode> sync_mode_{SyncMode::IMMEDIATE};
-    std::atomic<size_t> unsaved_ops_count_{0};
 
     static constexpr size_t default_cuckoo_size = 2097152;
     static constexpr int default_btree_degree = 100;
-    static constexpr size_t sync_threshold = 100000;
 
-    void handleBatchSync();
     void checkAndSync();
     std::string buildFullKey(const std::string& path, const std::string& key) const;
 
@@ -66,7 +63,7 @@ private:
     std::atomic<bool> async_running_{true};
 
     void asyncWorkerLoop();
-    void enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value = "");
+    tl::expected<void, EngineError> enqueueOrExecute(AsyncOp::Type type, const std::string& key, const std::string& value = "");
 };
 
 // Compile-time contract validation

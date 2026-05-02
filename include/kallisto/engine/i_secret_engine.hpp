@@ -41,7 +41,8 @@ enum class EngineError {
     Destroyed,
     StorageError,
     InvalidVersion,
-    CasMismatch
+    CasMismatch,
+    QueueFull
 };
 
 /**
