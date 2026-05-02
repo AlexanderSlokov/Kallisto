@@ -256,22 +256,6 @@ Set via: `make run-server` (default BATCH) or `MODE STRICT` in CLI.
 
 # Performance Benchmarks
 
-## Test Environment
-
-> ⚡ These numbers are from a **native Linux bare-metal** environment running Docker Engine on Ubuntu Desktop 24.04.
-
-| | Spec |
-|---|---|
-| **Host OS** | Ubuntu 24.04 Desktop (Bare-metal) |
-| **Container** | Ubuntu 24.04 LTS (Docker Engine) |
-| **CPU** | 12th Gen Intel(R) Core(TM) i7-12700 · 12 physical cores / 20 threads |
-| **RAM** | 32 GB |
-| **Disk** | Native NVMe |
-
-Native bare-metal avoids the virtualization tax of WSL2 on every syscall, network loopback, and disk write, revealing the true throughput potential of Kallisto.
-
----
-
 ## HTTP Server Benchmark
 
 Benchmark tool: **`wrk`** for Kallisto (HTTP/1.1).
@@ -335,9 +319,6 @@ services:
     ulimits:
       memlock: -1
     restart: always
-    # BẮT BUỘC DRAGONFLY PHẢI BỌC THÉP I/O:
-    # Bật Append Only File (AOF) và ép fsync luôn tục 
-    # để giả lập RocksDB WAL của Kallisto
     command: >
       dragonfly
       --dir=/data
@@ -351,7 +332,6 @@ services:
     depends_on:
       - dragonfly
     cpus: 2.0
-    # ÉP CẠNH TRANH CÔNG BẰNG VỚI KALLISTO:
     command: >
       -s 127.0.0.1
       -p 6379
@@ -364,7 +344,7 @@ services:
       --requests=100000
 ```
 
-**Conclusion:** Yes, Kallisto actually beat DragonflyDB. Thanks to Kallisto's aggressive asynchronous Write-Behind flush batching and strict Hexagonal architecture, it completely absorbed the disk I/O cost while delivering **41% better tail latency (P99)** and **19% higher throughput** than an identically-constrained DragonflyDB.
+**Conclusion:** Yes, Kallisto actually beat DragonflyDB. The aggressive asynchronous Write-Behind flush batching and strict Hexagonal architecture, it completely absorbed the disk I/O cost while delivering **41% better tail latency (P99)** and **19% higher throughput** than an identically-constrained DragonflyDB.
 
 # Architecture Overview
 
