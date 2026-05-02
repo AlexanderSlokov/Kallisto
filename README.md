@@ -1,30 +1,31 @@
-# Kallisto - An In-Memory Secrets Engine
+# Naughtian Kallisto - An In-Memory Secrets Engine
 
 *"Fast like Redis. API requests? Just like Vault.*
 
 *Sounds like it uses RocksDB? Hell yes! And architecturally, it's the lovely daughter of Envoy Proxy.*
 
-*Plus, it clusters up using NuRaft.*
-
 (...)
 
-If you are wondering why this project is called Kallisto, It's because we want to make something beautiful about Software Architect, Data Structure and Algorithm.
-
-We use C++20, not Rust. Because a 100-year lifespan isn't long enough to fight both the borrow checker and C++ at the same time."*
-
 Kallisto is a high-performance secret management engine built with C++20. It provides a secure and efficient way to store and retrieve secrets with a focus on performance and scalability.
+
+# IMPORTANT NOTICES
+
+1. Be advised, `Naughtian Kallisto` from version `1.0.0` to `2.5.0` is not offically released as the production-ready application. We will not take any accountability for application security, compliance or stability if you use `Naughtian Kallisto` in your production environment, directly or indirectly, and causing damages for your own businesses. Use as your own consents.
+2. Start from version 2.0.0, `Naughtian Kallisto` will begin to use many Rust components through Foreign Function Interface (FFI). Breaking changes must happen and will affect application's stability. We strongly advice you to use `Naughtian Kallisto` start from 2.5.0 version (tagged `2.5.0-lts`) as this will be the offical release of production-ready version.
+3. `Naughtian Kallisto` is protected under `AGPLv3` license. Custom "Commercial" or "Enterprise" License can be discussed.
+4. DO NOT use `Naughtian Kallisto` as a drop-in replacement directly for your current OpenBao/Hashicorp Vault infrastructure! Kallisto itself, while developed with high attention to cryptomatic security and provides similar API interface/contracts of Vault/OpenBao, can not and should not be used to replace them as a upstream secret management platform. To justify, `Naughtian Kallisto` is still a C++ project with not enough "pair of eyes" to audit or eliminate all security weaknesses, it will not meet the safety and compliance of OpenBao/Vault, and it WAS NOT designed to be a "Vault killer" at all. `Naughtian Kallisto` should only be use to store non-lethal secrets (those are, secrets that you do not want everyone to steal or read, but you can effectively reduce "blast radious" by revoke mechanisms in case they are stealed. "Stripe sk" or any similar type of "sk" do not counted!) We will not hold any accountability or legal problems if you ignored this warning and act as your own consents. You are advised.
 
 # HOW TO USE
 
 Kallisto provides **two interfaces**: a **CLI (Command Line Interface)** for interactive local usage, and a **Server mode** with HTTP APIs for production deployment.
 
-## Prerequisites
+## Building
+
+### Prerequisites
 
 - **C++20 compiler** (GCC 13+ or Clang 16+)
 - **CMake** 3.20+
 - **vcpkg** (only for Server mode — provides RocksDB, simdjson)
-
-## Building
 
 ### Core Build (CLI only — no external dependencies)
 
@@ -34,7 +35,7 @@ make build
 
 ### Server Build (HTTP — requires vcpkg)
 
-First time compiling, it will take a while to install dependencies with vcpkg (~30 min, and will use cache after first run)
+First time compiling, vcpkg will take a while to install dependencies (~10 min, and will use cache after first run)
 
 ```bash
 export VCPKG_ROOT=/usr/local/vcpkg
@@ -43,11 +44,9 @@ make build-server
 
 ## Docker Support
 
-Kallisto automatically builds and publishes Docker images to the GitHub Container Registry (GHCR).
-
 ### 1. Run the Production Server
 
-You don't even need to build anything. Just pull the image and run the server in the background, mounting a volume for RocksDB persistence:
+Pull the image and run the Kallisto server, remember to mount a volume for RocksDB persistence. For instance:
 
 ```bash
 docker run -d \
@@ -57,19 +56,18 @@ docker run -d \
   ghcr.io/alexanderslokov/kallisto:latest
 ```
 
-### 2. Run Tests / Benchmark in Docker Container
+### 2. Run benchmark
 
-If you want an isolated environment with `wrk` and `ghz` installed to run the test suite or benchmark the server:
+If you want to validate the raw performance of Naughtian Kallisto, we prepared a benchmark container with `wrk` ready for you:
 
 ```bash
-# Start a detached temporary container running Bash
-docker run -it --rm ghcr.io/alexanderslokov/kallisto-tester:latest bash
-# Inside the container, run 'make test' or access the 'bench' scripts.
+# Start a detached temporary container and run benchmark script
+docker run -it --rm ghcr.io/alexanderslokov/kallisto-tester:latest make bench
 ```
 
-### 3. Build Locally (Development)
+### 3. Development
 
-If you are modifying the C++ source code and want to build the Docker image locally:
+If you contribute for `Naughtian Kallisto` source code and want to build the Docker image locally:
 
 ```bash
 docker build -t kallisto-server:latest .
@@ -204,35 +202,9 @@ Response:
 | `405` | Method not allowed |
 | `500` | Internal error |
 
-
-
-## Makefile Targets
-
-| Target | Description |
-|--------|-------------|
-| `make build` | Build core (CLI only) |
-| `make build-server` | Build with HTTP + RocksDB |
-| `make run` | Start interactive CLI |
-| `make run-server` | Start the Kallisto server |
-| `make test` | Run unit tests |
-| `make test-persistence` | Run RocksDB persistence test (CRUD + restart) |
-| `make test-listener` | Run SO_REUSEPORT tests |
-| `make test-threading` | Run threading tests |
-| `make benchmark-batch` | Benchmark 1M ops (Batch mode) |
-| `make benchmark-strict` | Benchmark 5K ops (Strict mode) |
-| `make benchmark-multithread` | Multi-threaded benchmark |
-| `make benchmark-p99` | Latency p99 benchmark |
-| `make benchmark-dos` | DoS resistance benchmark |
-| `make bench-server` | HTTP benchmark (wrk) — GET/PUT/MIXED |
-| `make clean` | Remove build artifacts |
-| `make logs` | View server logs |
-| `make docker-build` | Build the production Docker image |
-| `make docker-test` | Run tests in an isolated Docker container |
-| `make docker-run` | Run the Kallisto Docker container |
-
 # Persistence — RocksDB
 
-Starting from `v0.1.0`, Kallisto uses **RocksDB 10.4.2** as a crash-safe WAL (Write-Ahead Log) persistence layer, replacing the old snapshot-based engine. CuckooTable remains the hot cache; RocksDB provides crash-safe persistence.
+Starting from beginning, Kallisto uses **RocksDB** as a crash-safe WAL.
 
 ## Architecture Data Flow
 
@@ -335,20 +307,6 @@ make bench-server
 **Variable Isolation**: GET throughput remains highly performant at **121k RPS** with an incredibly smooth **2.63ms P99**. This provides the perfect "armored" baseline for Kallisto. Because I/O latency variance has been practically eliminated, future architectural additions (like an Encrypt Barrier) can be benchmarked with perfect clarity—any latency spikes will definitively trace back to cryptographic computations, not disk I/O.
 
 **Over-provisioning Math**: At 91,143 PUTs per second, a real-world workload mix of 95% reads and 5% writes would require the system to handle over **1.8 Million Total RPS** before the disk flusher even begins to choke. The network stack and CPU will bottleneck long before the persistence layer does.
-
-
----
-
-## Run It Yourself
-
-```bash
-make build-server
-make bench-server          # HTTP wrk benchmark — GET / PUT / MIXED
-make benchmark-batch       # CLI — 1M ops in-process
-make benchmark-p99         # Latency distribution
-make test-persistence      # Correctness: CRUD + crash recovery
-```
-
 
 # Architecture Overview
 
